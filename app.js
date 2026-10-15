@@ -122,7 +122,7 @@ function scheduleInfo(site) {
       label += (i === 0 ? '' : i === ds.length - 1 ? ' & ' : ', ') + part;
     });
     const isLast = ds.length === 1 && +ds[0] === +last;
-    compact.push(`${DOW3[g.dow]} ${label} ${fmtTime(g.time)}${isLast ? ' (last day)' : ''}`);
+    compact.push(`${DOW3[g.dow]} ${label} ${fmtTime(g.time)}${isLast ? ' (last\u00a0day)' : ''}`);
   });
   const full = entries.map(e => `${fmtRange(e)} · ${fmtTime(e.time)}`);
   return { first, last, compact, full };
@@ -171,14 +171,14 @@ const LAYER = Object.fromEntries(LAYERS.map(l => [l.id, l]));
 
 const DEFAULT_TEXTS = {
   kicker: 'Hey {short} {mascot}!',
-  headline: 'Early\nvoting is\nopen!',
+  headline: 'Early voting\nis open!',
   dates: '{span}',
   site: '{site}',
   address: '{street}, {city}',
   distance: '{proximity}',
   hours: '{hours}',
   cta: 'Not registered? Register + vote the same day.',
-  footer: 'Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov',
+  footer: 'Bring a photo ID (many NC student IDs count) · ncsbe.gov',
   countdown: '{countdown}',
 };
 const TOKENS = [
@@ -193,54 +193,58 @@ const base = {
   campus:    { x: .2,  y: .6,   size: 60,  visible: false, anim: 'pop',  delay: .8, idle: 'none' },
   pin:       { x: .78, y: .5,   size: 120, visible: false, anim: 'drop', delay: 1.0, idle: 'float' },
   ballot:    { x: .8,  y: .4,   size: 190, visible: false, anim: 'pop',  delay: 1.2, idle: 'none' },
-  kicker:    { x: .07, y: .085, w: .86, size: 38, align: 'left', style: 'pill', anim: 'left', delay: .1 },
-  headline:  { x: .07, y: .158,  w: .66, size: 150, align: 'left', style: 'plain', anim: 'slam', delay: .35 },
-  dates:     { x: .07, y: .455, w: .62, size: 84, align: 'left', style: 'highlight', anim: 'wipe', delay: .9 },
-  site:      { x: .07, y: .55,  w: .86, size: 58, align: 'left', style: 'card', rot: -1.5, anim: 'up', delay: 1.1 },
-  address:   { x: .07, y: .695, w: .42, size: 30, align: 'left', style: 'plain', icon: 'pin', anim: 'up', delay: 1.3 },
-  distance:  { x: .07, y: .775, w: .42, size: 26, align: 'left', style: 'highlight', anim: 'left', delay: 1.5 },
-  hours:     { x: .93, y: .695, w: .43, size: 24, align: 'right', style: 'plain', icon: 'clock', anim: 'fade', delay: 1.7 },
-  cta:       { x: .07, y: .845, w: .86, size: 32, align: 'left', style: 'plain', color: 'pop', anim: 'up', delay: 1.9 },
-  footer:    { x: .07, y: .89,  w: .86, size: 22, align: 'left', style: 'plain', anim: 'fade', delay: 2.1 },
-  countdown: { x: .84, y: .3,   w: .26, size: 50, align: 'center', style: 'sticker', rot: 10, anim: 'pop', delay: 1.6, idle: 'wiggle' },
+  kicker:    { x: .07, y: .068, w: .86, size: 44, align: 'left', style: 'pill', anim: 'left', delay: .1 },
+  headline:  { x: .07, y: .122, w: .86, size: 210, align: 'left', style: 'plain', anim: 'slam', delay: .35 },
+  dates:     { x: .07, y: .405, w: .62, size: 130, align: 'left', style: 'highlight', anim: 'wipe', delay: .9 },
+  site:      { x: .07, y: .53,  w: .86, size: 84, align: 'left', style: 'card', rot: -1.5, fitMin: .6, anim: 'up', delay: 1.1 },
+  address:   { x: .07, y: .665, w: .86, size: 40, align: 'left', style: 'plain', icon: 'pin', anim: 'up', delay: 1.3 },
+  distance:  { x: .07, y: .718, w: .38, size: 34, align: 'left', style: 'highlight', anim: 'left', delay: 1.5 },
+  hours:     { x: .93, y: .718, w: .55, size: 31, align: 'right', style: 'plain', icon: 'clock', anim: 'fade', delay: 1.7 },
+  cta:       { x: .07, y: .838, w: .86, size: 40, align: 'left', style: 'pill', color: 'pop', fitMin: .8, anim: 'up', delay: 1.9, idle: 'pulse' },
+  footer:    { x: .07, y: .9, w: .86, size: 29, align: 'left', style: 'plain', fitMin: .85, anim: 'fade', delay: 2.1 },
+  countdown: { x: .82, y: .345, w: .26, size: 56, align: 'center', style: 'sticker', rot: 10, anim: 'pop', delay: 1.6, idle: 'wiggle' },
 };
 const layerDefaults = { visible: true, w: .86, size: 40, align: 'left', style: 'plain', rot: 0, color: 'auto', icon: 'none', anim: 'fade', delay: 0, idle: 'none' };
 const TEMPLATE_LAYOUT = {
   ticker: {},
   sticker: {
-    ballot: { visible: true, x: .79, y: .43 },
-    headline: { w: .86, y: .13 },
-    dates: { w: .55, style: 'card', rot: 2 },
-    site: { style: 'card', rot: -2 },
-    distance: { style: 'pill' },
-    countdown: { x: .84, y: .045, size: 40, rot: 12 },
-    footer: { y: .9 },
+    ballot: { visible: true, x: .8, y: .318, size: 150, rot: 6 },
+    kicker: { y: .045 },
+    headline: { y: .1 },
+    dates: { y: .405, w: .6, style: 'card', rot: 2, size: 120 },
+    countdown: { x: .83, y: .415, size: 44, rot: 12 },
+    site: { y: .575, rot: -2 },
+    address: { y: .71 },
+    distance: { y: .758, w: .4, size: 30, style: 'pill' },
+    hours: { y: .755 },
+    cta: { y: .882 },
+    footer: { y: .94 },
   },
   map: {
-    campus: { visible: true, x: .17, y: .5 },
-    pin: { visible: true, x: .8, y: .52 },
-    kicker: { y: .05 },
-    headline: { y: .1, size: 110, w: .7 },
-    distance: { x: .5, y: .395, w: .6, align: 'center', style: 'pill', anim: 'pop', delay: 2.4 },
-    dates: { y: .565, size: 70 },
-    site: { y: .64, size: 52 },
-    address: { y: .765 },
-    hours: { y: .765, size: 22 },
+    campus: { visible: true, x: .17, y: .425 },
+    pin: { visible: true, x: .8, y: .445 },
+    kicker: { y: .035 },
+    headline: { y: .085, w: .7, size: 190 },
+    countdown: { x: .865, y: .1, size: 46, rot: 10 },
+    distance: { x: .5, y: .31, w: .8, align: 'center', style: 'pill', anim: 'pop', delay: 2.4 },
+    dates: { y: .485, size: 110 },
+    site: { y: .575, size: 76 },
+    address: { y: .688 },
+    hours: { x: .07, y: .733, w: .86, align: 'left' },
     cta: { y: .88 },
-    footer: { y: .93 },
-    countdown: { x: .86, y: .16, size: 40 },
+    footer: { y: .943 },
   },
   rays: {
-    headline: { w: .86, size: 165, align: 'center', x: .5, y: .1 },
-    kicker: { align: 'center', x: .5, y: .05 },
-    dates: { align: 'center', x: .5, y: .47, style: 'pill' },
-    site: { align: 'center', x: .5, y: .565, rot: 0 },
-    address: { y: .705 },
-    distance: { y: .785 },
-    hours: { y: .705 },
-    cta: { align: 'center', x: .5, y: .86 },
-    footer: { align: 'center', x: .5, y: .905 },
-    countdown: { x: .86, y: .36, size: 46, rot: -10 },
+    kicker: { align: 'center', x: .5, y: .045 },
+    headline: { align: 'center', x: .5, y: .098, w: .9 },
+    countdown: { x: .86, y: .305, size: 48, rot: -10 },
+    dates: { align: 'center', x: .5, y: .39, style: 'pill', size: 120 },
+    site: { align: 'center', x: .5, y: .52, rot: 0 },
+    address: { align: 'center', x: .5, y: .655 },
+    distance: { y: .708 },
+    hours: { y: .708 },
+    cta: { align: 'center', x: .5, y: .842 },
+    footer: { align: 'center', x: .5, y: .908 },
   },
 };
 function defaultLayout(tpl) {
@@ -281,12 +285,24 @@ function freshState() {
     texts: { ...DEFAULT_TEXTS },
     layouts: Object.fromEntries(Object.keys(TEMPLATES).map(t => [t, defaultLayout(t)])),
     overrides: {},
+    layoutVersion: LAYOUT_VERSION,
     filter: 'all',
     search: '',
   };
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+// bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
+const LAYOUT_VERSION = 2;
+const OLD_DEFAULT_TEXTS = {
+  headline: ['Early\nvoting is\nopen!'],
+  footer: ['Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov'],
+};
 function merge(fresh, saved) {
+  if ((saved.layoutVersion || 1) < LAYOUT_VERSION) {
+    saved = { ...saved, layoutVersion: LAYOUT_VERSION, texts: { ...(saved.texts || {}) } };
+    delete saved.layouts;
+    for (const [k, olds] of Object.entries(OLD_DEFAULT_TEXTS)) if (olds.includes(saved.texts[k])) delete saved.texts[k];
+  }
   const s = { ...fresh, ...saved };
   s.texts = { ...fresh.texts, ...(saved.texts || {}) };
   s.layouts = {};
@@ -555,10 +571,13 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   const maxW = L.w * W - padX * 2 - iconW;
 
   let lines;
-  if (def.fit) {
+  // fit: shrink to keep each line whole (down to fitMin of the set size), then wrap anything still too wide
+  const fitMin = L.fitMin ?? (def.fit ? .35 : 0);
+  if (fitMin) {
     lines = text.split('\n');
     const widest = Math.max(...lines.map(l => ctx.measureText(l).width));
-    if (widest > maxW && style !== 'sticker') { size = Math.max(size * maxW / widest, size * .35); ctx.font = fontStr(def, size); }
+    if (widest > maxW && style !== 'sticker') { size = Math.max(size * maxW / widest, size * fitMin); ctx.font = fontStr(def, size); }
+    if (Math.max(...lines.map(l => ctx.measureText(l).width)) > maxW + 1) lines = wrapLines(ctx, text, maxW);
   } else lines = wrapLines(ctx, text, maxW);
 
   const lh = size * def.lh;
