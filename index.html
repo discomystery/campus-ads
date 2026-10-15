@@ -183,10 +183,30 @@
         <button id="exportPng" class="ghost">Download still frame (PNG)</button>
       </div>
       <p class="hint" id="formatNote"></p>
-      <h3>Batch</h3>
-      <p class="hint">Records every school in the left-hand list (respects search and filters), one file each. Keep this tab visible while it runs. Your browser may ask once to allow multiple downloads.</p>
-      <button id="exportAll" class="primary">Record all listed schools</button>
-      <button id="exportAllPng" class="ghost">Download stills for all listed</button>
+      <h3>Batch export</h3>
+      <p class="hint">Pick any mix of schools and designs. Every school × design pair becomes one file.</p>
+      <div class="bx-quick">
+        <button id="bxThisSchool" class="ghost sm">This school × every design</button>
+        <button id="bxThisDesign" class="ghost sm">Every school × this design</button>
+      </div>
+      <div class="bx-head"><b>Schools</b> <span id="bxSchoolCount" class="hint"></span>
+        <span class="bx-links"><button data-bx-s="all">All</button><button data-bx-s="listed">Listed</button><button data-bx-s="none">None</button></span></div>
+      <div id="bxSchools" class="bx-list"></div>
+      <div class="bx-head"><b>Designs</b> <span id="bxDesignCount" class="hint"></span>
+        <span class="bx-links"><button data-bx-d="all">All</button><button data-bx-d="full">All full</button><button data-bx-d="cta">All CTA</button><button data-bx-d="none">None</button></span></div>
+      <table id="bxDesigns" class="bx-grid"></table>
+      <div class="row2">
+        <label>Format
+          <select id="bxFormat"><option value="png">Still images (PNG)</option><option value="video">Videos</option></select>
+        </label>
+        <label>Folders in the ZIP
+          <select id="bxGroup"><option value="school">One per school</option><option value="design">One per design</option><option value="flat">No folders</option></select>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="bxZip" checked> Bundle everything into one .zip</label>
+      <p class="hint" id="bxSummary"></p>
+      <button id="bxStart" class="primary">Export</button>
+      <button id="bxCancel" class="ghost" hidden>Stop after this file</button>
       <div id="batchProgress" class="progress" hidden><div></div><span></span></div>
       <h3>Settings</h3>
       <div class="btn-col">

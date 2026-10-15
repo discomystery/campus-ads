@@ -1129,7 +1129,7 @@ function renderFrame(ctx, sc, t, opts = {}) {
     if (b) boxes[id] = b;
   }
   drawForeground(ctx, pal, t, content);
-  if (state.confetti) confetti(ctx, pal, t, state.template === 'sticker' ? .55 : state.template === 'ticket' ? lay.ticket.tear + .1 : (lay.headline.delay + .45));
+  if (state.confetti && !opts.still) confetti(ctx, pal, t, state.template === 'sticker' ? .55 : state.template === 'ticket' ? lay.ticket.tear + .1 : (lay.headline.delay + .45));
   const D = state.duration;
   if (state.outro === 'fade' && t > D - .45) { ctx.globalAlpha = clamp((t - (D - .45)) / .4, 0, 1); ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
   ctx.restore();
@@ -1482,7 +1482,7 @@ function recordCurrent() {
     setTimeout(() => { rec.stop(); recording = false; $('#recBadge').hidden = true; t = 0; }, state.duration * 1000 + 150);
   });
 }
-function setBusy(b) { $$('#exportVideo,#exportAll,#exportPng,#exportAllPng').forEach(x => x.disabled = b); }
+function setBusy(b) { $$('#exportVideo,#exportPng,#bxStart,#bxThisSchool,#bxThisDesign').forEach(x => x.disabled = b); if (!b) bxSummary(); }
 const ext = () => MIME && MIME.startsWith('video/mp4') ? 'mp4' : 'webm';
 $('#exportVideo').onclick = async () => {
   setView('single'); setBusy(true);
@@ -1493,40 +1493,118 @@ $('#exportVideo').onclick = async () => {
 // stills use the paused playhead; while playing, a frame after every entrance and before the fade
 const stillTime = () => playing ? state.duration * .6 : t;
 $('#exportPng').onclick = () => {
-  const sc = school(), at = stillTime(); renderFrame(offCtx, sc, at);
+  const sc = school(), at = stillTime(); renderFrame(offCtx, sc, at, { still: playing });
   offscreen.toBlob(b => download(b, `${fileBase(sc)}_${at.toFixed(1)}s.png`), 'image/png');
 };
 function progress(i, n, label) {
   const p = $('#batchProgress'); p.hidden = false;
   p.firstElementChild.style.width = (i / n * 100) + '%'; p.lastElementChild.textContent = label;
 }
-$('#exportAll').onclick = async () => {
-  const list = visibleSchools();
-  if (!list.length || !confirm(`Record ${list.length} videos (~${Math.ceil(list.length * (state.duration + .5) / 60)} min)? Keep this tab in front while it runs.`)) return;
-  setView('single'); setBusy(true);
-  const keep = state.schoolId;
-  for (let i = 0; i < list.length; i++) {
-    progress(i, list.length, `Recording ${list[i].short} (${i + 1}/${list.length})`);
-    state.schoolId = list[i].id; renderSchoolList(); renderContentTab(); renderSiteNote();
-    try { const blob = await recordCurrent(); download(blob, `${fileBase(list[i])}.${ext()}`); }
-    catch (e) { alert(e.message); break; }
-    await new Promise(r => setTimeout(r, 400));
-  }
-  progress(1, 1, 'Done ✓');
-  state.schoolId = keep; save(); renderSchoolList(); renderContentTab(); renderSiteNote(); setBusy(false);
+/* ---------- batch export: any schools × any designs ---------- */
+const designLabel = k => `${TEMPLATES[k.split(':')[0]].name} · ${k.endsWith(':cta') ? 'CTA' : 'Full'}`;
+const designSlug = k => k.replace(':', '-');
+let bxCancel = false;
+function bxSel() { state.batch = state.batch || { schools: [state.schoolId], designs: [layoutKey()] }; return state.batch; }
+function renderBatch() {
+  const sel = bxSel();
+  $('#bxSchools').innerHTML = SCHOOLS.map(sc => `<label><input type="checkbox" data-bx-school="${sc.id}" ${sel.schools.includes(sc.id) ? 'checked' : ''}>${esc(sc.short)}</label>`).join('');
+  $('#bxDesigns').innerHTML = '<tr><th>Template</th><th>Full details</th><th>Call to action</th></tr>' + Object.entries(TEMPLATES).map(([k, v]) =>
+    `<tr><td>${v.name}</td>${[k, k + ':cta'].map(d => `<td><label><input type="checkbox" data-bx-design="${d}" ${sel.designs.includes(d) ? 'checked' : ''}></label></td>`).join('')}</tr>`).join('');
+  $$('[data-bx-school]').forEach(cb => cb.onchange = () => { toggleIn(sel.schools, cb.dataset.bxSchool, cb.checked); bxSummary(); });
+  $$('[data-bx-design]').forEach(cb => cb.onchange = () => { toggleIn(sel.designs, cb.dataset.bxDesign, cb.checked); bxSummary(); });
+  bxSummary();
+}
+function toggleIn(arr, v, on) { const i = arr.indexOf(v); if (on && i < 0) arr.push(v); if (!on && i >= 0) arr.splice(i, 1); save(); }
+function bxJobs() {
+  const sel = bxSel(), schools = SCHOOLS.filter(sc => sel.schools.includes(sc.id) && chosen(sc)), designs = LAYOUT_KEYS.filter(k => sel.designs.includes(k));
+  return schools.flatMap(sc => designs.map(d => ({ sc, d })));
+}
+function bxSummary() {
+  const sel = bxSel(), n = bxJobs().length, video = $('#bxFormat').value === 'video';
+  $('#bxSchoolCount').textContent = `${sel.schools.length} of ${SCHOOLS.length}`;
+  $('#bxDesignCount').textContent = `${sel.designs.length} of ${LAYOUT_KEYS.length}`;
+  const secs = n * (video ? state.duration + .7 : .35), mb = n * (video ? state.duration * .7 : .6);
+  const time = secs < 90 ? `${Math.max(1, Math.round(secs))} sec` : `${Math.round(secs / 60)} min`;
+  const big = $('#bxZip').checked && mb > 1500;
+  $('#bxSummary').innerHTML = !n ? 'Pick at least one school and one design.'
+    : `<b>${n} file${n === 1 ? '' : 's'}</b> · about ${time}${video ? ' (videos record in real time; keep this tab in front)' : ''} · ~${mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : Math.round(mb) + ' MB'}` +
+      (big ? '<br><span class="warn">That ZIP would be very large. Uncheck “Bundle” to download files one by one, or export in smaller batches.</span>' : '');
+  $('#bxStart').disabled = !n || big;
+  $('#bxGroup').disabled = !$('#bxZip').checked;
+}
+$$('[data-bx-s]').forEach(b => b.onclick = () => {
+  const sel = bxSel(), m = b.dataset.bxS;
+  sel.schools = m === 'all' ? SCHOOLS.map(s => s.id) : m === 'listed' ? visibleSchools().map(s => s.id) : [];
+  save(); renderBatch();
+});
+$$('[data-bx-d]').forEach(b => b.onclick = () => {
+  const sel = bxSel(), m = b.dataset.bxD;
+  sel.designs = LAYOUT_KEYS.filter(k => m === 'all' || (m === 'cta' && k.endsWith(':cta')) || (m === 'full' && !k.endsWith(':cta')));
+  save(); renderBatch();
+});
+$('#bxThisSchool').onclick = () => { const sel = bxSel(); sel.schools = [state.schoolId]; sel.designs = [...LAYOUT_KEYS]; save(); renderBatch(); };
+$('#bxThisDesign').onclick = () => { const sel = bxSel(); sel.schools = SCHOOLS.map(s => s.id); sel.designs = [layoutKey()]; save(); renderBatch(); };
+['#bxFormat', '#bxZip'].forEach(id => $(id).onchange = bxSummary);
+$('#bxCancel').onclick = () => { bxCancel = true; $('#bxCancel').textContent = 'Stopping…'; };
+$('#bxStart').onclick = async () => {
+  const jobs = bxJobs(), video = $('#bxFormat').value === 'video', zip = $('#bxZip').checked, group = $('#bxGroup').value;
+  if (!jobs.length) return;
+  if (video && !MIME) { alert('This browser cannot record video. Try Chrome.'); return; }
+  if (video && jobs.length > 3 && !confirm(`Record ${jobs.length} videos? This takes about ${Math.ceil(jobs.length * (state.duration + .7) / 60)} min. Keep this tab in front while it runs.`)) return;
+  const keep = { schoolId: state.schoolId, template: state.template, variant: state.variant }, files = [], ex = video ? ext() : 'png';
+  bxCancel = false; setBusy(true); $('#bxCancel').hidden = false; $('#bxCancel').textContent = 'Stop after this file';
+  if (video) setView('single');
+  try {
+    for (let i = 0; i < jobs.length && !bxCancel; i++) {
+      const { sc, d } = jobs[i], [tpl, v] = d.split(':');
+      state.schoolId = sc.id; state.template = tpl; state.variant = v ? 'cta' : 'full';
+      progress(i, jobs.length, `${video ? 'Recording' : 'Rendering'} ${sc.short} · ${designLabel(d)} (${i + 1}/${jobs.length})`);
+      let blob;
+      if (video) { renderSchoolList(); renderVariant(); blob = await recordCurrent(); }
+      else { renderFrame(offCtx, sc, state.duration * .6, { still: true }); blob = await new Promise(r => offscreen.toBlob(r, 'image/png')); }
+      const name = `early-vote_${sc.id}_${designSlug(d)}.${ex}`;
+      if (zip) files.push({ path: group === 'school' ? `${sc.id}/${name}` : group === 'design' ? `${designSlug(d)}/${name}` : name, blob });
+      else { download(blob, name); await new Promise(r => setTimeout(r, 350)); }
+      if (video) await new Promise(r => setTimeout(r, 300));
+    }
+    if (zip && files.length) {
+      progress(1, 1, `Zipping ${files.length} files…`);
+      download(await makeZip(files), `early-vote-ads_${video ? 'videos' : 'stills'}_${files.length}.zip`);
+    }
+    progress(1, 1, bxCancel ? `Stopped after ${files.length || 'some'} files` : 'Done ✓');
+  } catch (e) { alert(e.message); }
+  Object.assign(state, keep); t = 0;
+  setBusy(false); $('#bxCancel').hidden = true;
+  renderSchoolList(); renderContentTab(); renderSiteNote(); renderStyleTab(); renderVariant(); renderLayerList(); renderLayerProps(); renderTextFields();
 };
-$('#exportAllPng').onclick = async () => {
-  const list = visibleSchools(), at = stillTime();
-  setBusy(true);
-  for (let i = 0; i < list.length; i++) {
-    progress(i, list.length, `Still ${i + 1}/${list.length}`);
-    renderFrame(offCtx, list[i], at);
-    const blob = await new Promise(r => offscreen.toBlob(r, 'image/png'));
-    download(blob, `${fileBase(list[i])}.png`);
-    await new Promise(r => setTimeout(r, 250));
+
+/* minimal ZIP writer (stored, no compression: PNG and video are already compressed) */
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+async function makeZip(files) {
+  const enc = new TextEncoder(), parts = [], central = [], d = new Date();
+  const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  let offset = 0;
+  for (const f of files) {
+    const data = new Uint8Array(await f.blob.arrayBuffer()), name = enc.encode(f.path), crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true); lh.setUint32(14, crc, true);
+    lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(lh.buffer, name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+    ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true);
+    ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+    ch.setUint32(42, offset, true);
+    central.push(ch.buffer, name);
+    offset += 30 + name.length + data.length;
   }
-  progress(1, 1, 'Done ✓'); setBusy(false);
-};
+  const cdSize = central.reduce((a, b) => a + (b.byteLength ?? b.length), 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+}
 $('#saveSettings').onclick = () => download(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }), 'early-vote-studio-settings.json');
 $('#loadSettings').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
@@ -1540,7 +1618,7 @@ $('#resetAll').onclick = () => { if (confirm('Reset all text, layouts, colors an
 function initUI() {
   $('#search').value = state.search;
   $$('#filters .chip').forEach(x => x.classList.toggle('active', x.dataset.f === state.filter));
-  renderSchoolList(); renderContentTab(); renderTextFields(); renderStyleTab(); renderLayerList(); renderLayerProps(); renderSiteNote(); renderVariant();
+  renderSchoolList(); renderContentTab(); renderTextFields(); renderStyleTab(); renderLayerList(); renderLayerProps(); renderSiteNote(); renderVariant(); renderBatch();
   refreshAltViews();
 }
 initUI();

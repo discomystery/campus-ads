@@ -169,3 +169,17 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   .canvas-wrap { height: auto; width: min(100%, 520px); }
   .topbar { flex-wrap: wrap; }
 }
+
+/* batch export builder */
+.bx-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0 4px; }
+.bx-quick button { margin: 0; font-size: 12px; }
+.bx-head { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 13px; }
+.bx-links { margin-left: auto; display: flex; gap: 2px; }
+.bx-links button { background: none; border: 0; color: var(--accent); font-size: 12px; cursor: pointer; padding: 2px 4px; }
+.bx-list { max-height: 190px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; background: var(--panel-2); }
+.bx-list label, .bx-grid label { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 0; font-weight: 600; color: var(--text); cursor: pointer; }
+.bx-grid { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+.bx-grid th { text-align: left; font-weight: 700; color: var(--muted); padding: 4px; }
+.bx-grid td { padding: 3px 4px; border-top: 1px solid var(--line); }
+.bx-grid td:first-child { font-weight: 700; }
+.bx-list input, .bx-grid input { width: auto; margin: 0; }
