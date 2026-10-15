@@ -153,6 +153,7 @@ function chosen(school) {
 
 /* ---------- layer definitions ---------- */
 const LAYERS = [
+  { id: 'ticket', label: 'Ticket', kind: 'graphic', only: 'ticket' },
   { id: 'campus', label: 'Campus marker', kind: 'graphic' },
   { id: 'pin', label: 'Site pin', kind: 'graphic' },
   { id: 'ballot', label: 'Ballot box', kind: 'graphic' },
@@ -167,6 +168,10 @@ const LAYERS = [
   { id: 'footer', label: 'Footer', kind: 'text', font: 'body', weight: 600, lh: 1.25 },
   { id: 'countdown', label: 'Sticker', kind: 'text', font: 'display', upper: true, lh: .9, fit: true },
   { id: 'tap', label: 'Tap prompt', kind: 'text', font: 'display', upper: true, lh: .95 },
+  // template-only layers ("only" = the template that shows them)
+  ...[1, 2, 3, 4].map(n => ({ id: 'chat' + n, label: 'Chat message ' + n, kind: 'text', font: 'body', weight: 700, lh: 1.18, only: 'chat' })),
+  { id: 'todo0', label: 'To-do title', kind: 'text', font: 'hand', lh: 1.05, only: 'todo' },
+  ...[1, 2, 3].map(n => ({ id: 'todo' + n, label: 'To-do item ' + n, kind: 'text', font: 'hand', lh: 1.02, only: 'todo' })),
 ];
 const LAYER = Object.fromEntries(LAYERS.map(l => [l.id, l]));
 
@@ -182,6 +187,14 @@ const DEFAULT_TEXTS = {
   footer: 'Bring a photo ID (many NC student IDs count) · ncsbe.gov',
   countdown: 'Skip\nthe\nlines!',
   tap: 'Tap to find your spot',
+  chat1: "who's voting early??",
+  chat2: "me!! it's at {site}",
+  chat3: 'wait it’s open already?',
+  chat4: 'open every day til {end} + you can register there too',
+  todo0: 'today’s to-do:',
+  todo1: 'grab coffee',
+  todo2: '10am class',
+  todo3: 'VOTE EARLY @ {site}!!',
 };
 const TOKENS = [
   ['{school}', 'Full school name'], ['{short}', 'Short name'], ['{mascot}', 'Mascot'],
@@ -196,6 +209,9 @@ const TEMPLATES = {
   sticker: { name: 'Sticker Bomb', desc: 'Chunky cards, ballot box, confetti' },
   map:     { name: 'Map Drop', desc: 'Route from campus to the pin' },
   rays:    { name: 'Sunburst', desc: 'Spinning rays, centered type' },
+  chat:    { name: 'Group Chat', desc: 'Messages pop in, typing dots' },
+  todo:    { name: 'To-Do List', desc: 'Notebook page, items get checked' },
+  ticket:  { name: 'Game Ticket', desc: 'Admit one, stub tears off' },
 };
 const base = {
   campus:    { x: .2,  y: .6,   size: 60,  visible: false, anim: 'pop',  delay: .8, idle: 'none' },
@@ -211,8 +227,19 @@ const base = {
   cta:       { x: .07, y: .838, w: .86, size: 40, align: 'left', style: 'pill', color: 'pop', fitMin: .8, anim: 'up', delay: 1.9, idle: 'pulse' },
   footer:    { x: .07, y: .9, w: .86, size: 29, align: 'left', style: 'plain', fitMin: .85, anim: 'fade', delay: 2.1 },
   countdown: { x: .82, y: .345, w: .26, size: 56, align: 'center', style: 'sticker', rot: 10, anim: 'pop', delay: 1.6, idle: 'wiggle' },
+  ticket:    { x: .5,  y: .1,   w: .88, h: .78, stub: .78, size: 100, visible: false, anim: 'up', delay: .05, tear: 3.6 },
+  chat1:     { x: .07, y: .33, w: .74, size: 44, align: 'left',  style: 'bubble', visible: false, anim: 'pop', delay: 1.0 },
+  chat2:     { x: .93, y: .4,  w: .74, size: 44, align: 'right', style: 'bubble', visible: false, anim: 'pop', delay: 1.9, after: 'chat1' },
+  chat3:     { x: .07, y: .47, w: .74, size: 44, align: 'left',  style: 'bubble', visible: false, anim: 'pop', delay: 2.8, after: 'chat2' },
+  chat4:     { x: .93, y: .54, w: .74, size: 44, align: 'right', style: 'bubble', visible: false, anim: 'pop', delay: 3.7, after: 'chat3' },
+  todo0:     { x: .12, y: .335, w: .8, size: 62, align: 'left', style: 'plain', visible: false, anim: 'fade', delay: .9 },
+  todo1:     { x: .12, y: .4,  w: .8, size: 70, align: 'left', style: 'todo', check: 'check', visible: false, anim: 'type', delay: 1.2, after: 'todo0', gap: .008 },
+  todo2:     { x: .12, y: .46, w: .8, size: 70, align: 'left', style: 'todo', check: 'check', visible: false, anim: 'type', delay: 2.0, after: 'todo1', gap: .004 },
+  todo3:     { x: .12, y: .52, w: .8, size: 70, align: 'left', style: 'todo', check: 'circle', visible: false, anim: 'type', delay: 2.8, after: 'todo2', gap: .004 },
   tap:       { x: .07, y: .69,  w: .86, size: 84, align: 'left', style: 'pill', color: 'pop', icon: 'arrow', fitMin: .7, visible: false, anim: 'pop', delay: 1.4, idle: 'pulse' },
 };
+const CHAT_SHOW = Object.fromEntries([1, 2, 3, 4].map(n => ['chat' + n, { visible: true }]));
+const TODO_SHOW = Object.fromEntries([0, 1, 2, 3].map(n => ['todo' + n, { visible: true }]));
 const layerDefaults = { visible: true, w: .86, size: 40, align: 'left', style: 'plain', rot: 0, color: 'auto', icon: 'none', anim: 'fade', delay: 0, idle: 'none' };
 const TEMPLATE_LAYOUT = {
   ticker: {},
@@ -255,6 +282,43 @@ const TEMPLATE_LAYOUT = {
     cta: { align: 'center', x: .5, y: .842 },
     footer: { align: 'center', x: .5, y: .908 },
   },
+  chat: {
+    ...CHAT_SHOW,
+    kicker: { y: .042 },
+    headline: { y: .11, size: 150 },
+    countdown: { x: .82, y: .2, size: 44, delay: .8 },
+    chat3: { visible: false }, chat4: { visible: true, after: 'chat2', gap: .008, delay: 2.8 },
+    dates: { visible: false }, site: { visible: false },
+    address: { after: 'chat4', gap: .035, size: 36, delay: 3.6 },
+    distance: { after: 'address', gap: .004, x: .07, w: .86, size: 30, style: 'plain', color: 'pop', delay: 3.8 },
+    hours: { after: 'distance', gap: .01, x: .07, align: 'left', w: .86, size: 30, delay: 4 },
+    cta: { y: .865, delay: 4.4 },
+    footer: { y: .928, delay: 4.6 },
+  },
+  todo: {
+    ...TODO_SHOW,
+    kicker: { x: .12, y: .04 },
+    headline: { x: .12, y: .112, w: .82, size: 150 },
+    dates: { style: 'note', x: .8, y: .218, size: 50, rot: 5, anim: 'pop', delay: 1 },
+    countdown: { visible: false }, site: { visible: false }, distance: { visible: false },
+    address: { x: .12, w: .82, after: 'todo3', gap: .03, size: 36, delay: 3.9 },
+    hours: { after: 'address', gap: .006, x: .12, align: 'left', w: .82, size: 30, delay: 4.1 },
+    cta: { x: .12, y: .862, delay: 4.4 },
+    footer: { x: .12, y: .925, delay: 4.6 },
+  },
+  ticket: {
+    ticket: { visible: true, y: .1, h: .84, stub: .8 },
+    kicker: { y: .03 },
+    headline: { x: .12, y: .17, w: .76, size: 130, on: 'card' },
+    countdown: { x: .8, y: .25, size: 40, rot: 12, delay: 1.2 },
+    dates: { x: .12, y: .363, size: 74, style: 'plain', caption: 'When', on: 'card' },
+    site: { x: .12, y: .468, w: .76, size: 66, style: 'plain', caption: 'Gate', on: 'card', rot: 0, fitMin: .5 },
+    address: { x: .12, y: .578, w: .3, size: 31, caption: 'Where', on: 'card', icon: 'none' },
+    distance: { x: .12, y: .703, w: .3, size: 27, style: 'plain', on: 'card' },
+    hours: { x: .88, y: .578, w: .45, size: 27, caption: 'Hours', on: 'card', icon: 'none' },
+    cta: { x: .5, y: .8, align: 'center', anim: 'pop', delay: 3.8 },
+    footer: { x: .5, y: .878, align: 'center', delay: 4 },
+  },
 };
 // "Call to action" version: no site, address, hours, distance or ID line, just a big tap prompt
 const VARIANTS = { full: 'Full details', cta: 'Call to action' };
@@ -267,6 +331,26 @@ const CTA_LAYOUT = {
     tap: { visible: true, y: .69 }, cta: { y: .825, size: 44, delay: 1.7 },
   },
   rays: { site: { size: 92, fitMin: .5 }, tap: { visible: true, x: .5, y: .675, align: 'center' }, cta: { y: .81, size: 44, delay: 1.7 } },
+  chat: {
+    ...Object.fromEntries([1, 2, 3].map(n => ['chat' + n, { size: 58, visible: true, gap: .024, w: .8 }])), chat4: { visible: false },
+    chat1: { size: 58, visible: true, y: .345, w: .8 },
+    tap: { visible: true, after: 'chat3', gap: .06, x: .5, align: 'center', size: 92, delay: 3.6 },
+    cta: { after: 'tap', gap: .03, x: .5, align: 'center', size: 44, delay: 3.9 },
+  },
+  todo: {
+    todo0: { size: 72 }, todo1: { size: 84 }, todo2: { size: 84 }, todo3: { size: 84 },
+    tap: { visible: true, after: 'todo3', gap: .075, x: .12, w: .82, size: 92, delay: 3.8 },
+    cta: { after: 'tap', gap: .03, size: 44, delay: 4.1 },
+  },
+  ticket: {
+    ticket: { stub: .72 },
+    headline: { size: 140 },
+    countdown: { y: .26 },
+    dates: { y: .38, size: 84 },
+    site: { y: .51, size: 96 },
+    tap: { visible: true, x: .5, y: .73, align: 'center', delay: 3.7 },
+    cta: { x: .5, y: .845, align: 'center', size: 42, delay: 3.9 },
+  },
 };
 const LAYOUT_KEYS = Object.keys(TEMPLATES).flatMap(t => [t, t + ':cta']);
 const layoutKey = () => state.template + (state.variant === 'cta' ? ':cta' : '');
@@ -370,7 +454,8 @@ function paletteFor(sc) {
   const ov = state.overrides[sc.id] || {};
   const [p, s, a] = ov.colors || sc.colors;
   const mode = state.colorMode;
-  const bg = mode === 'primary' ? p : mode === 'secondary' ? s : mode === 'dark' ? mix(p, '#0a0a0f', .82) : '#F5F0E6';
+  const bg = state.template === 'todo' ? '#FBF8F0' // notebook paper
+    : mode === 'primary' ? p : mode === 'secondary' ? s : mode === 'dark' ? mix(p, '#0a0a0f', .82) : '#F5F0E6';
   const prefs = [p, s, a];
   const ink = inkOn(bg, prefs);
   const popCands = prefs.filter(c => !same(c, bg) && !same(c, ink) && contrast(c, bg) >= 2.2);
@@ -425,6 +510,7 @@ function textFor(id, sc, content) {
 function fontStr(def, size) {
   const fp = FONT_PRESETS[state.font];
   if (def.font === 'display') return `${fp.dw} ${size}px "${fp.display}"`;
+  if (def.font === 'hand') return `700 ${size}px "Caveat"`;
   return `${def.weight || 700} ${size}px "${fp.body}"`;
 }
 function displayScale(def) { return def.font === 'display' ? (FONT_PRESETS[state.font].scale || 1) : 1; }
@@ -583,9 +669,20 @@ function drawBackground(ctx, pal, t, sc, keepOut) {
     drawMapStreets(ctx, pal, t);
   }
   if (tpl === 'rays') drawRays(ctx, pal, t);
+  if (tpl === 'todo') { drawNotebook(ctx, pal); return; }
   drawPattern(ctx, pal, t);
   if (tpl === 'ticker') floaters(ctx, pal, t, hashStr(sc.id), 7, .22, keepOut, 110);
   if (tpl === 'sticker') floaters(ctx, pal, t, hashStr(sc.id) + 3, 10, .3, keepOut, 0);
+  if (tpl === 'chat') floaters(ctx, pal, t, hashStr(sc.id) + 7, 6, .22, keepOut, 0);
+}
+function drawNotebook(ctx, pal) {
+  const rule = 'rgba(70,130,200,.28)', top = H * .3;
+  ctx.save(); ctx.lineWidth = 2; ctx.strokeStyle = rule;
+  for (let y = top; y < H; y += 54) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  ctx.strokeStyle = 'rgba(215,38,61,.45)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(W * .095, 0); ctx.lineTo(W * .095, H); ctx.stroke();
+  ctx.fillStyle = mix(pal.bg, '#000000', .12);
+  for (const y of [.18, .5, .82]) { ctx.beginPath(); ctx.arc(W * .045, H * y, 17, 0, 7); ctx.fill(); }
+  ctx.restore();
 }
 function drawForeground(ctx, pal, t, content) {
   if (state.template === 'ticker') {
@@ -612,11 +709,13 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   let size = L.size * ds;
   ctx.font = fontStr(def, size);
   const style = L.style;
-  const padX = style === 'pill' ? size * .6 : style === 'card' ? size * .5 : 0;
-  const padY = style === 'pill' ? size * .3 : style === 'card' ? size * .38 : 0;
-  const hasIcon = L.icon && L.icon !== 'none';
-  const iconEnd = L.icon === 'arrow' || L.align === 'right'; // arrows trail the text, other icons lead it
-  const iconW = hasIcon ? size * 1.15 : 0;
+  const padX = style === 'pill' ? size * .6 : style === 'card' ? size * .5 : style === 'bubble' ? size * .62 : 0;
+  const padY = style === 'pill' ? size * .3 : style === 'card' ? size * .38 : style === 'bubble' ? size * .42 : 0;
+  const hasIcon = style === 'todo' || (L.icon && L.icon !== 'none');
+  const iconEnd = style !== 'todo' && (L.icon === 'arrow' || L.align === 'right'); // arrows trail the text, other icons lead it
+  const iconW = style === 'todo' ? size * .95 : hasIcon ? size * 1.15 : 0;
+  // small field label above the text (ticket fields)
+  const capSize = L.caption ? Math.round(clamp(size * .4, 20, 28)) : 0, capH = capSize * 1.5;
   const maxW = L.w * W - padX * 2 - iconW;
 
   let lines;
@@ -632,8 +731,10 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   const lh = size * def.lh;
   const widths = lines.map(l => ctx.measureText(l).width);
   const textW = Math.max(...widths, 1);
-  const bw = textW + padX * 2 + iconW, bh = lines.length * lh + padY * 2;
-  const ax = L.x * W, ay = L.y * H;
+  const bw = textW + padX * 2 + iconW, bh = lines.length * lh + padY * 2 + capH;
+  // flow: stack under another layer (chat bubbles, to-do items) so wrapped lines push the rest down
+  const prev = L.after && opts.boxes && opts.boxes[L.after];
+  const ax = L.x * W, ay = prev ? prev.y + prev.h + (L.gap ?? .014) * H : L.y * H;
   let x0 = L.align === 'center' ? ax - bw / 2 : L.align === 'right' ? ax - bw : ax;
   let y0 = ay;
   let cx = x0 + bw / 2, cy = y0 + bh / 2;
@@ -642,8 +743,16 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
     const R = Math.max(textW, lines.length * lh) / 2 + size * .62;
     cx = ax; cy = ay + R;
     box = { x: cx - R, y: cy - R, w: R * 2, h: R * 2, cx, cy, rot: L.rot || 0 };
+  } else if (style === 'note') { // square sticky note, centered on x
+    const side = Math.max(textW, lines.length * lh) + size * 1.1;
+    cx = ax; cy = ay + side / 2;
+    box = { x: cx - side / 2, y: ay, w: side, h: side, cx, cy, rot: L.rot || 0 };
   }
   if (opts.measure) return box;
+  if (style === 'bubble' && L.anim !== 'none' && t < L.delay) { // "typing…" dots just before a message lands
+    if (t > L.delay - .75) typingBubble(ctx, L, x0, y0, bw, size, t, pal);
+    return box;
+  }
 
   // animation
   const chars = text.length;
@@ -676,6 +785,7 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   if (clipW != null) { ctx.beginPath(); ctx.rect(box.x - 20, box.y - 40, (box.w + 40) * clipW, box.h + 80); ctx.clip(); }
 
   const named = { ink: pal.ink, pop: pal.pop, primary: pal.p, secondary: pal.s, accent: pal.a, white: '#FFFFFF', black: '#111111' };
+  const surf = L.on === 'card' ? pal.cardFill : pal.bg, surfInk = L.on === 'card' ? pal.cardInk : pal.ink; // what the text sits on
   const pick = L.color && L.color !== 'auto' ? named[L.color] : null;
   let textCol;
   if (style === 'pill') {
@@ -692,19 +802,40 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
     starPath(ctx, cx, cy, R, R * .88, 22, t * .2); ctx.fillStyle = f; ctx.fill();
     ctx.lineWidth = 6; ctx.strokeStyle = pal.outline; ctx.stroke();
     textCol = inkOn(f, [pal.bg, pal.ink, pal.p, pal.s, pal.a, '#111111']);
+  } else if (style === 'note') {
+    const f = pick || '#FFE45C';
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(box.x + 10, box.y + 12, box.w, box.h);
+    ctx.fillStyle = f; ctx.fillRect(box.x, box.y, box.w, box.h);
+    ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(box.x + box.w * .3, box.y - 14, box.w * .4, 34); // tape
+    textCol = inkOn(f, [pal.p, pal.s, pal.a, '#111111']);
+  } else if (style === 'bubble') {
+    const f = bubbleFill(L, pal, pick);
+    bubblePath(ctx, x0, y0, bw, bh, size, L.align === 'right');
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.save(); ctx.translate(7, 9); ctx.fill(); ctx.restore();
+    ctx.fillStyle = f; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = pal.outline; ctx.stroke();
+    textCol = inkOn(f, ['#111111', pal.p, pal.s, pal.a]);
   } else if (style === 'highlight') {
     textCol = inkOn(pick || pal.pop, [pal.bg, pal.p, pal.s, pal.a, '#111111']);
-  } else textCol = pick && contrast(pick, pal.bg) >= 3 ? pick : pal.ink;
+  } else textCol = pick && contrast(pick, surf) >= 3 ? pick : surfInk;
 
   ctx.font = fontStr(def, size);
   ctx.textBaseline = 'alphabetic';
   // optically center each line on its box using real glyph metrics
   const mH = ctx.measureText('H'), mG = ctx.measureText('g');
   const baseOff = (mH.actualBoundingBoxAscent - (def.upper ? 0 : mG.actualBoundingBoxDescent * .5)) / 2;
-  const iconCol = style === 'plain' || style === 'outline' ? (contrast(pick || pal.pop, pal.bg) >= 2.5 ? (pick || pal.pop) : pal.ink) : textCol;
-  if (hasIcon) {
+  const iconCol = style === 'plain' || style === 'outline' ? (contrast(pick || pal.pop, surf) >= 2.5 ? (pick || pal.pop) : surfInk) : textCol;
+  if (capSize) {
+    ctx.save(); ctx.font = `800 ${capSize}px "${FONT_PRESETS[state.font].body}"`; ctx.textBaseline = 'top';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = Math.round(capSize * .14) + 'px';
+    ctx.textAlign = L.align === 'right' ? 'right' : L.align === 'center' ? 'center' : 'left';
+    ctx.fillStyle = iconCol; ctx.globalAlpha *= .9;
+    ctx.fillText(L.caption.toUpperCase(), L.align === 'right' ? x0 + bw - padX : L.align === 'center' ? x0 + bw / 2 : x0 + padX, y0 + padY);
+    ctx.restore();
+  }
+  if (style === 'todo') todoMarks(ctx, L, x0, y0 + capH, bw, bh - capH, iconW, lines, widths, lh, size, t, dur, pal, textCol, baseOff);
+  else if (hasIcon) {
     const ix = (iconEnd ? x0 + bw - padX - iconW / 2 : x0 + padX + iconW / 2) + (iconEnd ? size * .1 : -size * .08);
-    icon(ctx, L.icon, ix, y0 + padY + (L.icon === 'arrow' ? lines.length * lh / 2 : lh / 2), size * 1.0, iconCol);
+    icon(ctx, L.icon, ix, y0 + capH + padY + (L.icon === 'arrow' ? lines.length * lh / 2 : lh / 2), size * 1.0, iconCol);
   }
   let shown = 0;
   lines.forEach((ln, i) => {
@@ -713,11 +844,11 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
     const lw = widths[i];
     const innerL = x0 + padX + (iconEnd ? 0 : iconW), innerR = x0 + bw - padX - (iconEnd ? iconW : 0);
     let tx;
-    if (style === 'sticker') { ctx.textAlign = 'center'; tx = cx; }
+    if (style === 'sticker' || style === 'note') { ctx.textAlign = 'center'; tx = cx; }
     else if (L.align === 'center') { ctx.textAlign = 'center'; tx = (innerL + innerR) / 2; }
     else if (L.align === 'right') { ctx.textAlign = 'right'; tx = innerR; }
     else { ctx.textAlign = 'left'; tx = innerL; }
-    const ty = style === 'sticker' ? cy - (lines.length * lh) / 2 + lh * (i + .5) : y0 + padY + lh * (i + .5);
+    const ty = style === 'sticker' || style === 'note' ? cy - (lines.length * lh) / 2 + lh * (i + .5) : y0 + capH + padY + lh * (i + .5);
     if (style === 'highlight' && s) {
       const hx = ctx.textAlign === 'center' ? tx - lw / 2 : ctx.textAlign === 'right' ? tx - lw : tx;
       ctx.fillStyle = pick || pal.pop;
@@ -732,6 +863,117 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   });
   ctx.restore();
   return box;
+}
+
+// chat bubble: rounded box with a tail on the sender's side (right = "me")
+function bubblePath(ctx, x, y, w, h, size, right) {
+  const r = Math.min(size * .75, h / 2), tw = size * .42;
+  ctx.save();
+  if (!right) { ctx.translate(x * 2 + w, 0); ctx.scale(-1, 1); } // mirror for incoming messages
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r * .7);
+  ctx.quadraticCurveTo(x + w, y + h, x + w + tw, y + h + size * .06);
+  ctx.quadraticCurveTo(x + w - tw * .4, y + h + size * .1, x + w - r * .9, y + h);
+  ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+  ctx.restore();
+}
+function bubbleFill(L, pal, pick) {
+  if (pick) return pick;
+  if (L.align !== 'right') return '#FFFFFF';
+  return [pal.pop, pal.p, pal.s, pal.a].find(c => lum(c) < .85 && contrast(c, pal.bg) >= 1.6) || '#2B2D42';
+}
+function typingBubble(ctx, L, x0, y0, bw, size, t, pal) {
+  const w = size * 2.5, h = size * 1.3, x = L.align === 'right' ? x0 + bw - w : x0, f = bubbleFill(L, pal, null);
+  ctx.save();
+  bubblePath(ctx, x, y0, w, h, size, L.align === 'right');
+  ctx.fillStyle = f; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = pal.outline; ctx.stroke();
+  ctx.fillStyle = inkOn(f, ['#111111', '#FFFFFF']);
+  for (let i = 0; i < 3; i++) {
+    const b = Math.max(0, Math.sin(t * 9 - i * .9)) * size * .12;
+    ctx.beginPath(); ctx.arc(x + w / 2 + (i - 1) * size * .5, y0 + h / 2 - b, size * .13, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+// to-do line: hand-drawn checkbox, then a check + strike-through, or a marker circle around the item
+function todoMarks(ctx, L, x0, y0, bw, bh, iconW, lines, widths, lh, size, t, dur, pal, ink, baseOff) {
+  const done = L.delay + dur, side = size * .52, bx = x0 + iconW * .4, by = y0 + lh * .5;
+  const mark = contrast(pal.pop, pal.bg) >= 2.2 ? pal.pop : '#D7263D';
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = ink; ctx.lineWidth = size * .055;
+  ctx.beginPath(); ctx.moveTo(bx - side / 2, by - side / 2 + 2); ctx.lineTo(bx + side / 2, by - side / 2); ctx.lineTo(bx + side / 2 + 2, by + side / 2);
+  ctx.lineTo(bx - side / 2 - 1, by + side / 2 + 1); ctx.closePath(); ctx.stroke();
+  const textX = x0 + iconW, textW = Math.max(...widths, 1);
+  if (L.check === 'check') {
+    const p = clamp((t - done - .1) / .35, 0, 1);
+    if (p > 0) {
+      const pts = [[bx - side * .45, by - side * .02], [bx - side * .05, by + side * .42], [bx + side * .75, by - side * .8]];
+      const seg1 = Math.min(1, p / .35), seg2 = clamp((p - .35) / .65, 0, 1);
+      ctx.strokeStyle = mark; ctx.lineWidth = size * .1; ctx.beginPath(); ctx.moveTo(...pts[0]);
+      ctx.lineTo(pts[0][0] + (pts[1][0] - pts[0][0]) * seg1, pts[0][1] + (pts[1][1] - pts[0][1]) * seg1);
+      if (seg2 > 0) ctx.lineTo(pts[1][0] + (pts[2][0] - pts[1][0]) * seg2, pts[1][1] + (pts[2][1] - pts[1][1]) * seg2);
+      ctx.stroke();
+    }
+    const sp = clamp((t - done - .45) / .3, 0, 1);
+    if (sp > 0) {
+      ctx.strokeStyle = ink; ctx.lineWidth = size * .065; ctx.globalAlpha *= .85;
+      lines.forEach((ln, i) => { const yy = y0 + lh * (i + .5) + size * .04; ctx.beginPath(); ctx.moveTo(textX - 6, yy + 3); ctx.lineTo(textX + (widths[i] + 12) * sp, yy - 3); ctx.stroke(); });
+    }
+  } else if (L.check === 'circle') {
+    const p = clamp((t - done - .15) / .6, 0, 1);
+    if (p > 0) {
+      const cx = textX + textW / 2, cy = y0 + bh / 2, rx = textW / 2 + size * .38, ry = bh / 2 + size * .2, a0 = -2.6;
+      ctx.strokeStyle = mark; ctx.lineWidth = size * .085; ctx.beginPath();
+      for (let k = 0; k <= 60; k++) {
+        const a = a0 + p * 2.15 * Math.PI * k / 60, wob = 1 + Math.sin(a * 3 + 1) * .035 + k / 60 * .05;
+        const px = cx + Math.cos(a) * rx * wob, py = cy + Math.sin(a) * ry * wob;
+        k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// "ADMIT ONE" ticket: main body + stub that tears off at L.tear, revealing what sits underneath
+function drawTicket(ctx, L, b, pal, t, sc) {
+  const { x, y, w, h } = b, py = y + h * L.stub, r = 30, nr = 30;
+  const fill = pal.cardFill, ink = pal.cardInk, accent = contrast(pal.pop, fill) >= 2.5 ? pal.pop : ink;
+  // one piece of the ticket: rounded on its outer end, with half-circle notches where it meets the other piece
+  const paint = (top, bot, upper) => {
+    const shape = () => { ctx.beginPath(); ctx.roundRect(x, top, w, bot - top, upper ? [r, r, 0, 0] : [0, 0, r, r]); };
+    ctx.save(); ctx.translate(14, 14); shape(); ctx.fillStyle = pal.shadow; ctx.fill(); ctx.restore();
+    shape(); ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = 6; ctx.strokeStyle = pal.outline; ctx.stroke();
+    for (const [cx, a0, a1] of upper ? [[x, -Math.PI / 2, 0], [x + w, Math.PI, Math.PI * 1.5]] : [[x, 0, Math.PI / 2], [x + w, Math.PI / 2, Math.PI]]) {
+      ctx.beginPath(); ctx.moveTo(cx, py); ctx.arc(cx, py, nr, a0, a1); ctx.closePath(); ctx.fillStyle = pal.bg; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, py, nr, a0, a1); ctx.stroke();
+    }
+  };
+  paint(y, py, true);
+  // header strip
+  const fp = FONT_PRESETS[state.font];
+  ctx.save(); ctx.fillStyle = accent; ctx.font = `800 26px "${fp.body}"`; ctx.textBaseline = 'middle';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '4px';
+  ctx.textAlign = 'left'; ctx.fillText('ADMIT ONE', x + 44, y + 42);
+  ctx.textAlign = 'right'; ctx.fillText(`${sc.short.toUpperCase()} ★ EARLY VOTING`, x + w - 44, y + 42);
+  ctx.fillRect(x + 44, y + 70, w - 88, 4);
+  ctx.restore();
+  // stub (torn off after L.tear)
+  const tt = t - L.tear, p = clamp(tt / .9, 0, 1);
+  if (p >= 1) return;
+  ctx.save();
+  if (p > 0) { ctx.globalAlpha *= 1 - p; ctx.translate(x, py); ctx.rotate(p * .35); ctx.translate(-x, -py + p * p * 420); }
+  paint(py, y + h, false);
+  ctx.strokeStyle = rgba(ink, .5); ctx.lineWidth = 4; ctx.setLineDash([14, 12]);
+  ctx.beginPath(); ctx.moveTo(x + nr + 10, py); ctx.lineTo(x + w - nr - 10, py); ctx.stroke(); ctx.setLineDash([]);
+  const sy = py + 34, sh = y + h - py - 68, rnd = rng(hashStr(sc.id));
+  ctx.fillStyle = ink;
+  for (let bx = x + 50; bx < x + w * .42;) { const bw2 = 3 + Math.floor(rnd() * 4) * 3; ctx.fillRect(bx, sy, bw2, sh); bx += bw2 + 4 + Math.floor(rnd() * 3) * 3; }
+  ctx.font = `${fp.dw} ${Math.round(sh * .5 * (fp.scale || 1))}px "${fp.display}"`; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = accent; ctx.fillText('TEAR HERE ✂', x + w - 50, sy + sh * .52);
+  ctx.font = `800 24px "${fp.body}"`; ctx.fillStyle = ink; ctx.fillText('ONE VOTE · YOURS', x + w - 52, sy + sh * .92);
+  ctx.restore();
 }
 
 function graphicAnim(L, t) {
@@ -758,7 +1000,8 @@ function graphicAnim(L, t) {
 function drawGraphic(ctx, id, L, pal, t, sc, content, opts) {
   const x = L.x * W, y = L.y * H, s = L.size;
   let box;
-  if (id === 'pin') box = { x: x - s * .45, y: y - s * 1.05, w: s * .9, h: s * 1.1 };
+  if (id === 'ticket') box = { x: x - L.w * W / 2, y, w: L.w * W, h: L.h * H };
+  else if (id === 'pin') box = { x: x - s * .45, y: y - s * 1.05, w: s * .9, h: s * 1.1 };
   else if (id === 'campus') { // include the school-name label under the marker
     ctx.save(); ctx.font = `800 ${Math.round(s * .42)}px "${FONT_PRESETS[state.font].body}"`;
     const lw = Math.max(s * 1.8, ctx.measureText(sc.short.toUpperCase()).width + s * .5); ctx.restore();
@@ -774,7 +1017,8 @@ function drawGraphic(ctx, id, L, pal, t, sc, content, opts) {
   const px = id === 'pin' ? x : box.cx, py = id === 'pin' ? y : box.cy;
   ctx.translate(px + a.dx, py + a.dy); ctx.rotate((L.rot || 0) * Math.PI / 180 + (a.rot || 0)); ctx.scale(a.s, a.s); ctx.translate(-px, -py);
 
-  if (id === 'pin') {
+  if (id === 'ticket') drawTicket(ctx, L, box, pal, t, sc);
+  else if (id === 'pin') {
     ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(x, y + 4 - a.dy, s * .22, s * .07, 0, 0, 7); ctx.fill();
     const r = s * .38, cy = y - s * .64;
     ctx.beginPath(); ctx.arc(x, cy, r, Math.PI * .78, Math.PI * .22); ctx.lineTo(x, y); ctx.closePath();
@@ -832,16 +1076,16 @@ function drawRoute(ctx, pal, t, lay) {
 }
 
 /* ---------- frame render ---------- */
-const ORDER = ['campus', 'pin', 'ballot', 'kicker', 'headline', 'dates', 'site', 'address', 'distance', 'hours', 'tap', 'cta', 'footer', 'countdown'];
+const ORDER = ['ticket', 'campus', 'pin', 'ballot', 'kicker', 'headline', 'dates', 'site', 'chat1', 'chat2', 'chat3', 'chat4', 'todo0', 'todo1', 'todo2', 'todo3', 'address', 'distance', 'hours', 'tap', 'cta', 'footer', 'countdown'];
 function renderFrame(ctx, sc, t, opts = {}) {
   const pal = paletteFor(sc), content = contentFor(sc), lay = layout();
   const boxes = {};
   ctx.save();
-  const keepOut = [];
+  const keepOut = [], measured = {};
   if (content) for (const id of ORDER) {
     if (!lay[id].visible) continue;
-    ctx.save(); const b = drawLayer(ctx, id, lay[id], pal, t, sc, content, { ...opts, measure: true }); ctx.restore();
-    if (b) keepOut.push(b);
+    ctx.save(); const b = drawLayer(ctx, id, lay[id], pal, t, sc, content, { ...opts, measure: true, boxes: measured }); ctx.restore();
+    if (b) { keepOut.push(b); measured[id] = b; }
   }
   if (state.template === 'map' || (lay.campus.visible && lay.pin.visible)) keepOut.push({ x: lay.campus.x * W, y: Math.min(lay.campus.y, lay.pin.y) * H - 200, w: (lay.pin.x - lay.campus.x) * W, h: 260 });
   drawBackground(ctx, pal, t, sc, keepOut);
@@ -854,11 +1098,11 @@ function renderFrame(ctx, sc, t, opts = {}) {
   for (const id of ORDER) {
     const L = lay[id];
     if (!L.visible) continue;
-    const b = drawLayer(ctx, id, L, pal, t, sc, content, opts);
+    const b = drawLayer(ctx, id, L, pal, t, sc, content, { ...opts, boxes });
     if (b) boxes[id] = b;
   }
   drawForeground(ctx, pal, t, content);
-  if (state.confetti) confetti(ctx, pal, t, state.template === 'sticker' ? .55 : (lay.headline.delay + .45));
+  if (state.confetti) confetti(ctx, pal, t, state.template === 'sticker' ? .55 : state.template === 'ticket' ? lay.ticket.tear + .1 : (lay.headline.delay + .45));
   const D = state.duration;
   if (state.outro === 'fade' && t > D - .45) { ctx.globalAlpha = clamp((t - (D - .45)) / .4, 0, 1); ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
   ctx.restore();
@@ -916,7 +1160,7 @@ function hit(px, py) {
 ovCanvas.addEventListener('pointerdown', ev => {
   const [px, py] = canvasPt(ev), id = hit(px, py);
   if (!id) return;
-  selected = id; const L = layout()[id];
+  selected = id; detach(id); const L = layout()[id];
   dragging = { id, ox: px - L.x * W, oy: py - L.y * H };
   ovCanvas.setPointerCapture(ev.pointerId);
   showTab('layout'); renderLayerList(); renderLayerProps();
@@ -936,7 +1180,7 @@ document.addEventListener('keydown', ev => {
   if (ev.code === 'Space') { ev.preventDefault(); togglePlay(); return; }
   const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
   if (k && selected) {
-    ev.preventDefault(); const L = layout()[selected], step = ev.shiftKey ? 20 : 2;
+    ev.preventDefault(); detach(selected); const L = layout()[selected], step = ev.shiftKey ? 20 : 2;
     L.x = +(L.x + k[0] * step / W).toFixed(4); L.y = +(L.y + k[1] * step / H).toFixed(4); syncPropInputs(); save();
   }
 });
@@ -1016,9 +1260,9 @@ $('#resetColors').onclick = () => { delete ovr().colors; save(); renderContentTa
 
 function renderTextFields() {
   const box = $('#textFields'); box.innerHTML = '';
-  for (const l of LAYERS.filter(l => l.kind === 'text')) {
+  for (const l of LAYERS.filter(l => l.kind === 'text' && inTemplate(l.id))) {
     const lab = document.createElement('label');
-    lab.innerHTML = `${l.label}<textarea rows="${l.id === 'headline' || l.id === 'footer' ? 3 : 1}"></textarea>`;
+    lab.innerHTML = `${l.label}${l.only ? ` <span class="hint">(${TEMPLATES[l.only].name})</span>` : ''}<textarea rows="${l.id === 'headline' || l.id === 'footer' ? 3 : 1}"></textarea>`;
     const ta = lab.querySelector('textarea'); ta.value = state.texts[l.id];
     ta.oninput = () => { state.texts[l.id] = ta.value; save(); };
     box.appendChild(lab);
@@ -1029,9 +1273,12 @@ $('#hoursMode').onchange = e => { state.hoursMode = e.target.value; save(); };
 $('#asOf').onchange = e => { state.asOf = e.target.value || todayISO(); save(); };
 
 /* ---------- UI: layout tab ---------- */
+const inTemplate = id => !LAYER[id].only || LAYER[id].only === state.template;
+// a stacked layer (chat bubble, to-do item) becomes free-standing once it is moved by hand
+function detach(id) { const L = layout()[id]; if (L.after && boxes[id]) { L.y = +(boxes[id].y / H).toFixed(4); delete L.after; } }
 function renderLayerList() {
   const ul = $('#layerList'); ul.innerHTML = '';
-  for (const id of [...ORDER].reverse()) {
+  for (const id of [...ORDER].reverse().filter(inTemplate)) {
     const L = layout()[id], li = document.createElement('li');
     li.className = (id === selected ? 'active ' : '') + (L.visible ? '' : 'hidden-layer');
     li.innerHTML = `<button class="eye" title="Show / hide">${L.visible ? '👁' : '—'}</button><span>${LAYER[id].label}</span>`;
@@ -1040,7 +1287,7 @@ function renderLayerList() {
     ul.appendChild(li);
   }
 }
-const STYLE_OPTS = { plain: 'Plain', pill: 'Pill', card: 'Card', highlight: 'Highlighter', sticker: 'Sticker', outline: 'Outline' };
+const STYLE_OPTS = { plain: 'Plain', pill: 'Pill', card: 'Card', highlight: 'Highlighter', sticker: 'Sticker', outline: 'Outline', bubble: 'Chat bubble', todo: 'To-do line', note: 'Sticky note' };
 const COLOR_OPTS = { auto: 'Auto', ink: 'Ink', pop: 'Pop', primary: 'Primary', secondary: 'Secondary', accent: 'Accent', white: 'White', black: 'Black' };
 const ICON_OPTS = { none: 'None', pin: 'Pin', clock: 'Clock', cal: 'Calendar', check: 'Check', star: 'Star', arrow: 'Arrow' };
 function selectHTML(key, opts, val) { return `<select data-k="${key}">${Object.entries(opts).map(([k, v]) => `<option value="${k}" ${k === val ? 'selected' : ''}>${v}</option>`).join('')}</select>`; }
@@ -1065,6 +1312,7 @@ function renderLayerProps() {
   h += `<div class="prop">Loop motion${selectHTML('idle', IDLES, L.idle)}</div>`;
   box.innerHTML = h;
   $$('input[type=range]', box).forEach(inp => inp.oninput = () => {
+    if (inp.dataset.k === 'y') detach(selected);
     L[inp.dataset.k] = +inp.value; $(`[data-o=${inp.dataset.k}]`, box).textContent = inp.dataset.k === 'rot' ? inp.value + '°' : (+inp.value).toFixed(['size'].includes(inp.dataset.k) ? 0 : 2) + (inp.dataset.k === 'delay' ? 's' : '');
     if (inp.dataset.k === 'delay') t = Math.max(t, 0); save();
   });
@@ -1088,7 +1336,8 @@ function renderStyleTab() {
   $('#templatePick').innerHTML = Object.entries(TEMPLATES).map(([k, v]) =>
     `<button data-tpl="${k}" class="${k === state.template ? 'active' : ''}"><b>${v.name}</b><span>${v.desc}</span></button>`).join('');
   $$('#templatePick button').forEach(b => b.onclick = () => {
-    state.template = b.dataset.tpl; save(); renderStyleTab(); renderLayerList(); renderLayerProps(); t = 0; refreshAltViews();
+    state.template = b.dataset.tpl; if (!inTemplate(selected)) selected = 'headline';
+    save(); renderStyleTab(); renderLayerList(); renderLayerProps(); renderTextFields(); t = 0; refreshAltViews();
   });
   $('#fontPreset').innerHTML = Object.entries(FONT_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('');
   $('#fontPreset').value = state.font;
@@ -1264,6 +1513,6 @@ function initUI() {
 initUI();
 requestAnimationFrame(tick);
 // make sure canvas fonts are loaded, then refresh static views
-const fams = new Set(Object.values(FONT_PRESETS).flatMap(f => [`${f.dw} 40px "${f.display}"`, `400 40px "${f.body}"`, `700 40px "${f.body}"`, `800 40px "${f.body}"`]));
+const fams = new Set(Object.values(FONT_PRESETS).flatMap(f => [`${f.dw} 40px "${f.display}"`, `400 40px "${f.body}"`, `700 40px "${f.body}"`, `800 40px "${f.body}"`]).concat('700 40px "Caveat"'));
 Promise.all([...fams].map(f => document.fonts.load(f).catch(() => {}))).then(() => refreshAltViews());
 })();
