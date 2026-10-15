@@ -201,7 +201,7 @@ const TOKENS = [
   ['{site}', 'Site name'], ['{street}', 'Street address'], ['{city}', 'City'], ['{county}', 'County'],
   ['{proximity}', '"On campus" or distance + travel time'], ['{miles}', 'Distance in miles'], ['{travel}', '"~6 min walk"'],
   ['{span}', 'Date range, e.g. OCT 15–31'], ['{start}', 'First day'], ['{end}', 'Last day'],
-  ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left text (changes daily)'], ['{photoid}', 'Student-ID line if the school’s ID is approved, otherwise a photo-ID reminder'],
+  ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left text (changes daily)'], ['{photoid}', 'Student-ID line if the school’s ID is approved, otherwise a photo-ID reminder'], ['{idline}', 'Student-ID line, blank if the school’s ID isn’t approved'],
 ];
 
 const TEMPLATES = {
@@ -324,24 +324,27 @@ const TEMPLATE_LAYOUT = {
 // "Call to action" version: no site, address, hours, distance or ID line, just a big tap prompt
 const VARIANTS = { full: 'Full details', cta: 'Call to action' };
 const CTA_HIDE = { address: { visible: false }, distance: { visible: false }, hours: { visible: false }, footer: { visible: false } };
+const CTA_ID = (extra = {}) => ({ visible: true, text: '{idline}', icon: 'check', size: 31, fitMin: .8, delay: 2.3, ...extra });
 const CTA_LAYOUT = {
-  ticker: { site: { size: 96, fitMin: .5 }, tap: { visible: true, y: .69 }, cta: { y: .82, size: 44, delay: 1.7 } },
-  sticker: { site: { size: 92, fitMin: .5 }, tap: { visible: true, y: .725 }, cta: { y: .855, size: 44, delay: 1.7 } },
+  ticker: { footer: CTA_ID({ y: .893 }),  site: { size: 96, fitMin: .5 }, tap: { visible: true, y: .69 }, cta: { y: .82, size: 44, delay: 1.7 } },
+  sticker: { footer: CTA_ID({ y: .925 }),  site: { size: 92, fitMin: .5 }, tap: { visible: true, y: .725 }, cta: { y: .855, size: 44, delay: 1.7 } },
   map: {
     campus: { y: .385 }, pin: { y: .405 }, dates: { y: .455 }, site: { y: .55, size: 88, fitMin: .5 },
-    tap: { visible: true, y: .69 }, cta: { y: .825, size: 44, delay: 1.7 },
+    tap: { visible: true, y: .69 }, cta: { y: .825, size: 44, delay: 1.7 }, footer: CTA_ID({ y: .9 }),
   },
-  rays: { site: { size: 92, fitMin: .5 }, tap: { visible: true, x: .5, y: .675, align: 'center' }, cta: { y: .81, size: 44, delay: 1.7 } },
+  rays: { footer: CTA_ID({ x: .5, align: 'center', y: .885 }),  site: { size: 92, fitMin: .5 }, tap: { visible: true, x: .5, y: .675, align: 'center' }, cta: { y: .81, size: 44, delay: 1.7 } },
   chat: {
     ...Object.fromEntries([1, 2, 3].map(n => ['chat' + n, { size: 54, visible: true, gap: .022, w: .8 }])), chat4: { visible: false },
     chat1: { size: 54, visible: true, y: .335, w: .8 },
-    tap: { visible: true, after: 'chat3', gap: .05, x: .5, align: 'center', size: 88, delay: 3.6 },
-    cta: { after: 'tap', gap: .03, x: .5, align: 'center', size: 44, delay: 3.9 },
+    tap: { visible: true, after: 'chat3', gap: .04, x: .5, align: 'center', size: 88, delay: 3.6 },
+    cta: { after: 'tap', gap: .022, x: .5, align: 'center', size: 44, delay: 3.9 },
+    footer: CTA_ID({ after: 'cta', gap: .014, x: .5, align: 'center', delay: 4.2 }),
   },
   todo: {
     todo0: { size: 72 }, todo1: { size: 84 }, todo2: { size: 84 }, todo3: { size: 84 },
     tap: { visible: true, after: 'todo3', gap: .075, x: .12, w: .82, size: 92, delay: 3.8 },
     cta: { after: 'tap', gap: .03, size: 44, delay: 4.1 },
+    footer: CTA_ID({ after: 'cta', gap: .018, x: .12, delay: 4.4 }),
   },
   ticket: {
     ticket: { stub: .72 },
@@ -351,6 +354,7 @@ const CTA_LAYOUT = {
     site: { y: .51, size: 96 },
     tap: { visible: true, x: .5, y: .73, align: 'center', delay: 3.7 },
     cta: { x: .5, y: .845, align: 'center', size: 42, delay: 3.9 },
+    footer: CTA_ID({ x: .5, y: .912, align: 'center', delay: 4.2 }),
   },
 };
 const LAYOUT_KEYS = Object.keys(TEMPLATES).flatMap(t => [t, t + ':cta']);
@@ -396,7 +400,7 @@ function freshState() {
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
-const LAYOUT_VERSION = 7;
+const LAYOUT_VERSION = 8;
 // Positions whose defaults moved after v3: [version, layout key, layer, prop, old default]. A saved value still
 // equal to the old default is dropped on load so the new default applies; hand-placed values are kept.
 const LAYOUT_CHANGES = [
@@ -408,6 +412,7 @@ const LAYOUT_CHANGES = [
   [4, 'map', 'distance', 'y', .31],
   [5, 'map', 'campus', 'y', .425], [5, 'map', 'pin', 'y', .445], [5, 'map', 'dates', 'y', .485], [5, 'map', 'site', 'y', .575],
   [5, 'map', 'site', 'size', 76], [5, 'map', 'address', 'y', .688], [5, 'map', 'hours', 'y', .733],
+  ...Object.keys(TEMPLATES).map(k => [8, k + ':cta', 'footer', 'visible', false]), // CTA versions now show the student-ID line
   [5, 'map:cta', 'campus', 'y', .37], [5, 'map:cta', 'pin', 'y', .39], [5, 'map:cta', 'dates', 'y', .445], [5, 'map:cta', 'site', 'y', .54],
 ];
 const OLD_DEFAULT_TEXTS = {
@@ -498,7 +503,7 @@ function contentFor(sc) {
       span: sameMon ? `${fmtDay(sch.first)}–${sch.last.getDate()}` : `${fmtDay(sch.first)} – ${fmtDay(sch.last)}`,
       start: fmtDay(sch.first), end: fmtDay(sch.last),
       hours: (state.hoursMode === 'full' ? sch.full : sch.compact).join('\n'),
-      days: String(Math.max(days, 0)), countdown, photoid,
+      days: String(Math.max(days, 0)), countdown, photoid, idline: idOk ? photoid : '',
     },
     site, c, sch,
   };
