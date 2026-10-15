@@ -195,8 +195,8 @@ const base = {
   headline:  { x: .07, y: .158,  w: .66, size: 150, align: 'left', style: 'plain', anim: 'slam', delay: .35 },
   dates:     { x: .07, y: .455, w: .62, size: 84, align: 'left', style: 'highlight', anim: 'wipe', delay: .9 },
   site:      { x: .07, y: .55,  w: .86, size: 58, align: 'left', style: 'card', rot: -1.5, anim: 'up', delay: 1.1 },
-  address:   { x: .07, y: .695, w: .44, size: 30, align: 'left', style: 'plain', icon: 'pin', anim: 'up', delay: 1.3 },
-  distance:  { x: .07, y: .775, w: .46, size: 26, align: 'left', style: 'highlight', anim: 'left', delay: 1.5 },
+  address:   { x: .07, y: .695, w: .42, size: 30, align: 'left', style: 'plain', icon: 'pin', anim: 'up', delay: 1.3 },
+  distance:  { x: .07, y: .775, w: .42, size: 26, align: 'left', style: 'highlight', anim: 'left', delay: 1.5 },
   hours:     { x: .93, y: .695, w: .43, size: 24, align: 'right', style: 'plain', icon: 'clock', anim: 'fade', delay: 1.7 },
   cta:       { x: .07, y: .845, w: .86, size: 32, align: 'left', style: 'plain', color: 'pop', anim: 'up', delay: 1.9 },
   footer:    { x: .07, y: .89,  w: .86, size: 22, align: 'left', style: 'plain', anim: 'fade', delay: 2.1 },
@@ -374,6 +374,10 @@ function displayScale(def) { return def.font === 'display' ? (FONT_PRESETS[state
 function wrapLines(ctx, text, maxW) {
   const out = [];
   for (const para of text.split('\n')) {
+    // too long for one line: break at " · " separators before breaking mid-phrase
+    if (para.includes(' · ') && ctx.measureText(para).width > maxW) {
+      out.push(...wrapLines(ctx, para.split(' · ').join('\n'), maxW)); continue;
+    }
     const words = para.split(/\s+/).filter(Boolean);
     let line = '';
     for (const w of words) {
@@ -1075,12 +1079,14 @@ $('#gridTime').onchange = () => renderGrid();
 
 /* ---------- export ---------- */
 function pickMime() {
-  const types = ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1.42E01F', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  // a bare 'video/mp4' can mean VP9-in-MP4 (e.g. Chromium without H.264), so it ranks after the avc1 types
+  const types = ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1.42E01F', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
   return window.MediaRecorder ? types.find(x => MediaRecorder.isTypeSupported(x)) : null;
 }
 const MIME = pickMime();
 $('#formatNote').textContent = !MIME ? 'This browser cannot record video. Try Chrome.'
-  : MIME.startsWith('video/mp4') ? 'Records MP4 (H.264) in real time at 1080×1350, ready for Instagram.'
+  : MIME.includes('avc1') ? 'Records MP4 (H.264) in real time at 1080×1350, ready for Instagram.'
+  : MIME.startsWith('video/mp4') ? 'Records MP4, but this browser may not use H.264. If Instagram rejects the file, record in Chrome or convert it (e.g. HandBrake).'
   : 'This browser records WebM. Instagram needs MP4: use Chrome or Safari, or convert the file (e.g. HandBrake).';
 function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40); }
 function fileBase(sc) { const c = chosen(sc); return `early-vote_${sc.id}_${c ? slug(c.site.nice) : 'site'}`; }
@@ -1111,9 +1117,11 @@ $('#exportVideo').onclick = async () => {
   catch (e) { alert(e.message); }
   setBusy(false);
 };
+// stills use the paused playhead; while playing, a frame after every entrance and before the fade
+const stillTime = () => playing ? state.duration * .6 : t;
 $('#exportPng').onclick = () => {
-  const sc = school(); renderFrame(offCtx, sc, t);
-  offscreen.toBlob(b => download(b, `${fileBase(sc)}_${t.toFixed(1)}s.png`), 'image/png');
+  const sc = school(), at = stillTime(); renderFrame(offCtx, sc, at);
+  offscreen.toBlob(b => download(b, `${fileBase(sc)}_${at.toFixed(1)}s.png`), 'image/png');
 };
 function progress(i, n, label) {
   const p = $('#batchProgress'); p.hidden = false;
@@ -1135,7 +1143,7 @@ $('#exportAll').onclick = async () => {
   state.schoolId = keep; save(); renderSchoolList(); renderContentTab(); renderSiteNote(); setBusy(false);
 };
 $('#exportAllPng').onclick = async () => {
-  const list = visibleSchools(), at = t || state.duration * .6;
+  const list = visibleSchools(), at = stillTime();
   setBusy(true);
   for (let i = 0; i < list.length; i++) {
     progress(i, list.length, `Still ${i + 1}/${list.length}`);
