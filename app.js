@@ -184,7 +184,7 @@ const DEFAULT_TEXTS = {
   distance: '{proximity}',
   hours: '{hours}',
   cta: 'Not registered? Register + vote the same day.',
-  footer: 'Bring a photo ID (many NC student IDs count) · ncsbe.gov',
+  footer: '{photoid} · ncsbe.gov',
   countdown: 'Skip\nthe\nlines!',
   tap: 'Tap to find your spot',
   chat1: "who's voting early??",
@@ -201,7 +201,7 @@ const TOKENS = [
   ['{site}', 'Site name'], ['{street}', 'Street address'], ['{city}', 'City'], ['{county}', 'County'],
   ['{proximity}', '"On campus" or distance + travel time'], ['{miles}', 'Distance in miles'], ['{travel}', '"~6 min walk"'],
   ['{span}', 'Date range, e.g. OCT 15–31'], ['{start}', 'First day'], ['{end}', 'Last day'],
-  ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left text (changes daily)'],
+  ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left text (changes daily)'], ['{photoid}', 'Student-ID line if the school’s ID is approved, otherwise a photo-ID reminder'],
 ];
 
 const TEMPLATES = {
@@ -298,8 +298,9 @@ const TEMPLATE_LAYOUT = {
   todo: {
     ...TODO_SHOW,
     kicker: { x: .12, y: .04 },
-    headline: { x: .12, y: .112, w: .82, size: 150 },
-    dates: { style: 'note', x: .8, y: .218, size: 50, rot: 5, anim: 'pop', delay: 1 },
+    headline: { x: .12, y: .112, w: .56, size: 150 },
+    dates: { style: 'note', x: .825, y: .105, size: 54, rot: 4, font: 'hand', lh: 1, text: 'early voting\n{span}!', anim: 'pop', delay: 1 },
+    todo0: { visible: true, y: .292, size: 66 }, todo1: { visible: true, size: 80 }, todo2: { visible: true, size: 80 }, todo3: { visible: true, size: 80 },
     countdown: { visible: false }, site: { visible: false }, distance: { visible: false },
     address: { x: .12, w: .82, after: 'todo3', gap: .03, size: 36, delay: 3.9 },
     hours: { after: 'address', gap: .006, x: .12, align: 'left', w: .82, size: 30, delay: 4.1 },
@@ -332,9 +333,9 @@ const CTA_LAYOUT = {
   },
   rays: { site: { size: 92, fitMin: .5 }, tap: { visible: true, x: .5, y: .675, align: 'center' }, cta: { y: .81, size: 44, delay: 1.7 } },
   chat: {
-    ...Object.fromEntries([1, 2, 3].map(n => ['chat' + n, { size: 58, visible: true, gap: .024, w: .8 }])), chat4: { visible: false },
-    chat1: { size: 58, visible: true, y: .345, w: .8 },
-    tap: { visible: true, after: 'chat3', gap: .06, x: .5, align: 'center', size: 92, delay: 3.6 },
+    ...Object.fromEntries([1, 2, 3].map(n => ['chat' + n, { size: 54, visible: true, gap: .022, w: .8 }])), chat4: { visible: false },
+    chat1: { size: 54, visible: true, y: .335, w: .8 },
+    tap: { visible: true, after: 'chat3', gap: .05, x: .5, align: 'center', size: 88, delay: 3.6 },
     cta: { after: 'tap', gap: .03, x: .5, align: 'center', size: 44, delay: 3.9 },
   },
   todo: {
@@ -395,7 +396,7 @@ function freshState() {
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
-const LAYOUT_VERSION = 6;
+const LAYOUT_VERSION = 7;
 // Positions whose defaults moved after v3: [version, layout key, layer, prop, old default]. A saved value still
 // equal to the old default is dropped on load so the new default applies; hand-placed values are kept.
 const LAYOUT_CHANGES = [
@@ -411,7 +412,7 @@ const LAYOUT_CHANGES = [
 ];
 const OLD_DEFAULT_TEXTS = {
   headline: ['Early\nvoting is\nopen!'],
-  footer: ['Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov'],
+  footer: ['Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov', 'Bring a photo ID (many NC student IDs count) · ncsbe.gov'],
   tap: ['Tap to find your\nvoting spot →', 'Tap to find\nyour spot'],
   countdown: ['{countdown}'],
 };
@@ -486,6 +487,9 @@ function contentFor(sc) {
   const near = c.onCampus && c.d < 1.2;
   const proximity = near ? `Right on campus · ${travel}` : `${c.d.toFixed(1)} mi from campus · ${travel}`;
   const sameMon = sch.first.getMonth() === sch.last.getMonth();
+  // only schools whose student ID is on the State Board's approved list get the student-ID line
+  const idOk = idApproved(sc), photoid = idOk ? `Your ${ov.idCard || sc.idCard || sc.short + ' student ID'} counts as voter ID!`
+    : 'Bring a photo ID, like a driver’s license or passport';
   return {
     tokens: {
       school: sc.name, short: sc.short, mascot: sc.mascot,
@@ -494,11 +498,12 @@ function contentFor(sc) {
       span: sameMon ? `${fmtDay(sch.first)}–${sch.last.getDate()}` : `${fmtDay(sch.first)} – ${fmtDay(sch.last)}`,
       start: fmtDay(sch.first), end: fmtDay(sch.last),
       hours: (state.hoursMode === 'full' ? sch.full : sch.compact).join('\n'),
-      days: String(Math.max(days, 0)), countdown,
+      days: String(Math.max(days, 0)), countdown, photoid,
     },
     site, c, sch,
   };
 }
+function idApproved(sc) { const o = (state.overrides[sc.id] || {}).idOk; return o != null ? o : !!sc.idOk; }
 function fill(str, tokens) { return str.replace(/\{(\w+)\}/g, (m, k) => tokens[k] != null ? tokens[k] : m); }
 function textFor(id, sc, content) {
   const ov = state.overrides[sc.id] || {};
@@ -699,9 +704,11 @@ function animDur(L, chars) { return L.anim === 'type' ? clamp(chars * .035, .4, 
 
 /* Draws one layer. Returns the hit box {x,y,w,h,cx,cy,rot}. */
 function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
-  const def = LAYER[id];
-  if (def.kind === 'graphic') return drawGraphic(ctx, id, L, pal, t, sc, content, opts);
-  let text = textFor(id, sc, content);
+  const base0 = LAYER[id];
+  if (base0.kind === 'graphic') return drawGraphic(ctx, id, L, pal, t, sc, content, opts);
+  // a layout can swap the font (e.g. handwriting on the to-do sticky note) and the text
+  const def = L.font ? { ...base0, font: L.font, upper: false, lh: L.lh || base0.lh } : base0;
+  let text = L.text != null ? fill(L.text, content.tokens) : textFor(id, sc, content);
   if (!text.trim()) return null;
   if (def.upper) text = text.toUpperCase();
 
@@ -804,9 +811,7 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
     textCol = inkOn(f, [pal.bg, pal.ink, pal.p, pal.s, pal.a, '#111111']);
   } else if (style === 'note') {
     const f = pick || '#FFE45C';
-    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(box.x + 10, box.y + 12, box.w, box.h);
-    ctx.fillStyle = f; ctx.fillRect(box.x, box.y, box.w, box.h);
-    ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(box.x + box.w * .3, box.y - 14, box.w * .4, 34); // tape
+    drawStickyNote(ctx, box, f);
     textCol = inkOn(f, [pal.p, pal.s, pal.a, '#111111']);
   } else if (style === 'bubble') {
     const f = bubbleFill(L, pal, pick);
@@ -865,6 +870,23 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   return box;
 }
 
+// sticky note: lifted shadow, sticky strip along the top, bottom-right corner curling up
+function drawStickyNote(ctx, b, f) {
+  const { x, y, w, h } = b, c = w * .16;
+  const shape = () => { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + h - c); ctx.quadraticCurveTo(x + w - c * .15, y + h - c * .15, x + w - c, y + h); ctx.lineTo(x, y + h); ctx.closePath(); };
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.3)'; ctx.shadowBlur = 22; ctx.shadowOffsetX = 6; ctx.shadowOffsetY = 14;
+  shape(); ctx.fillStyle = f; ctx.fill();
+  ctx.restore();
+  ctx.save(); shape(); ctx.clip();
+  const g = ctx.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, mix(f, '#FFFFFF', .25)); g.addColorStop(1, mix(f, '#000000', .04));
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,.06)'; ctx.fillRect(x, y, w, h * .17); // adhesive strip
+  ctx.restore();
+  ctx.beginPath(); ctx.moveTo(x + w, y + h - c); ctx.quadraticCurveTo(x + w - c * .55, y + h - c * .7, x + w - c * 1.02, y + h - c * 1.0);
+  ctx.quadraticCurveTo(x + w - c * .7, y + h - c * .5, x + w - c, y + h); ctx.quadraticCurveTo(x + w - c * .15, y + h - c * .15, x + w, y + h - c);
+  ctx.fillStyle = mix(f, '#000000', .14); ctx.fill();
+}
 // chat bubble: rounded box with a tail on the sender's side (right = "me")
 function bubblePath(ctx, x, y, w, h, size, right) {
   const r = Math.min(size * .75, h / 2), tw = size * .42;
@@ -1246,6 +1268,9 @@ function renderContentTab() {
   $('#siteLabel').value = ov.siteLabel || '';
   $('#siteLabel').placeholder = chosen(sc) ? siteName(sc, chosen(sc).site) : '';
   $('#schoolHeadline').value = ov.headline || '';
+  $('#idStatus').value = ov.idOk == null ? 'default' : ov.idOk ? 'yes' : 'no';
+  $('#idStatus').options[0].textContent = `From the State Board list: ${sc.idOk ? 'approved' : 'not confirmed'}`;
+  $('#idCard').value = ov.idCard || ''; $('#idCard').placeholder = sc.idCard || sc.short + ' student ID';
   const cols = ov.colors || sc.colors;
   ['c0', 'c1', 'c2'].forEach((id, i) => $('#' + id).value = cols[i]);
 }
@@ -1253,6 +1278,8 @@ function ovr() { const id = state.schoolId; return (state.overrides[id] = state.
 $('#siteSelect').onchange = e => { ovr().siteId = +e.target.value; save(); renderSchoolList(); renderSiteNote(); };
 $('#siteLabel').oninput = e => { ovr().siteLabel = e.target.value; save(); };
 $('#schoolHeadline').oninput = e => { ovr().headline = e.target.value; save(); };
+$('#idStatus').onchange = e => { const v = e.target.value; if (v === 'default') delete ovr().idOk; else ovr().idOk = v === 'yes'; save(); refreshAltViews(); };
+$('#idCard').oninput = e => { ovr().idCard = e.target.value; save(); };
 ['c0', 'c1', 'c2'].forEach((id, i) => $('#' + id).oninput = e => {
   const o = ovr(); o.colors = (o.colors || school().colors).slice(); o.colors[i] = e.target.value.toUpperCase(); save(); renderSchoolList();
 });
@@ -1399,9 +1426,10 @@ function renderTable() {
     return `<tr><td><b>${esc(s.short)}</b><br><span class="muted">${esc(s.county)} Co.</span></td><td>${c.onCampus ? '★ ' : ''}${esc(siteName(s, c.site))}${c.site.id === s.pdfSite ? ' <span class="muted">(school flyer' + (s.pdfLabel !== c.site.nice ? '; official: ' + esc(c.site.nice) : '') + ')</span>' : ''}<br><span class="muted">${esc(titleStreet(c.site.street))}, ${esc(c.site.city)} ${c.site.zip}</span></td>
       <td class="num">${c.d.toFixed(2)} mi</td><td class="num">${fmtDay(sch.first)}–${fmtDay(sch.last)}</td><td>${sch.compact.map(esc).join('<br>')}</td>
       <td>${s.colors.map(x => `<span class="swatch" style="display:inline-grid;width:18px;height:18px;vertical-align:middle;background:${x}"></span>`).join(' ')}</td>
+      <td>${idApproved(s) ? '✓ ' + esc((state.overrides[s.id] || {}).idCard || s.idCard || 'student ID') : '<span class="muted">not confirmed: ads skip student IDs</span>'}</td>
       <td class="warn">${flags.length ? '⚠ ' + flags.join('; ') : ''}</td></tr>`;
   }).join('');
-  $('#dataTable').innerHTML = `<thead><tr><th>School</th><th>Early voting site</th><th>Distance</th><th>Dates</th><th>Hours</th><th>Colors</th><th>Check</th></tr></thead><tbody>${rows}</tbody>`;
+  $('#dataTable').innerHTML = `<thead><tr><th>School</th><th>Early voting site</th><th>Distance</th><th>Dates</th><th>Hours</th><th>Colors</th><th>Student ID for voting</th><th>Check</th></tr></thead><tbody>${rows}</tbody>`;
 }
 function setView(v) {
   view = v;

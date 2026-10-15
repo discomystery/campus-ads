@@ -65,7 +65,7 @@
   </section>
 
   <section class="stage table-stage" id="stageTable" hidden>
-    <p class="muted">Each school's chosen early voting site. Students can only vote early in the county where they're registered, so the picker only offers sites in the campus county. ⚠ marks places to double-check before publishing.</p>
+    <p class="muted">Student IDs: approvals from the State Board's 2025–26 list (valid through Dec 31, 2026); schools not confirmed get a general photo-ID line instead. Each school's chosen early voting site. Students can only vote early in the county where they're registered, so the picker only offers sites in the campus county. ⚠ marks places to double-check before publishing.</p>
     <div class="table-scroll"><table id="dataTable"></table></div>
   </section>
 
@@ -86,6 +86,18 @@
       <label>Site label on the ad <span class="hint">(blank = official name)</span>
         <input id="siteLabel" type="text" placeholder="e.g. Talley Student Union">
       </label>
+      <div class="row2">
+        <label>Student ID for voting
+          <select id="idStatus">
+            <option value="default">From the State Board list</option>
+            <option value="yes">Approved: say so on the ad</option>
+            <option value="no">Not approved: don't mention</option>
+          </select>
+        </label>
+        <label>ID card name <span class="hint">(if approved)</span>
+          <input id="idCard" type="text">
+        </label>
+      </div>
       <div class="color-row">
         <label>Primary<input type="color" id="c0"></label>
         <label>Secondary<input type="color" id="c1"></label>
