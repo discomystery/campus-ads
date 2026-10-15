@@ -201,8 +201,8 @@ const base = {
   campus:    { x: .2,  y: .6,   size: 60,  visible: false, anim: 'pop',  delay: .8, idle: 'none' },
   pin:       { x: .78, y: .5,   size: 120, visible: false, anim: 'drop', delay: 1.0, idle: 'float' },
   ballot:    { x: .8,  y: .4,   size: 190, visible: false, anim: 'pop',  delay: 1.2, idle: 'none' },
-  kicker:    { x: .07, y: .068, w: .86, size: 44, align: 'left', style: 'pill', anim: 'left', delay: .1 },
-  headline:  { x: .07, y: .122, w: .86, size: 210, align: 'left', style: 'plain', anim: 'slam', delay: .35 },
+  kicker:    { x: .07, y: .061, w: .86, size: 44, align: 'left', style: 'pill', anim: 'left', delay: .1 },
+  headline:  { x: .07, y: .14, w: .86, size: 210, align: 'left', style: 'plain', anim: 'slam', delay: .35 },
   dates:     { x: .07, y: .405, w: .62, size: 130, align: 'left', style: 'highlight', anim: 'wipe', delay: .9 },
   site:      { x: .07, y: .53,  w: .86, size: 84, align: 'left', style: 'card', rot: -1.5, fitMin: .6, anim: 'up', delay: 1.1 },
   address:   { x: .07, y: .665, w: .86, size: 40, align: 'left', style: 'plain', icon: 'pin', anim: 'up', delay: 1.3 },
@@ -218,8 +218,8 @@ const TEMPLATE_LAYOUT = {
   ticker: {},
   sticker: {
     ballot: { visible: true, x: .8, y: .318, size: 150, rot: 6 },
-    kicker: { y: .045 },
-    headline: { y: .1 },
+    kicker: { y: .034 },
+    headline: { y: .115 },
     dates: { y: .405, w: .6, style: 'card', rot: 2, size: 120 },
     countdown: { x: .83, y: .415, size: 44, rot: 12 },
     site: { y: .575, rot: -2 },
@@ -232,10 +232,10 @@ const TEMPLATE_LAYOUT = {
   map: {
     campus: { visible: true, x: .17, y: .425 },
     pin: { visible: true, x: .8, y: .445 },
-    kicker: { y: .035 },
-    headline: { y: .085, w: .7, size: 190 },
+    kicker: { y: .025 },
+    headline: { y: .102, w: .7, size: 190 },
     countdown: { x: .865, y: .1, size: 46, rot: 10 },
-    distance: { x: .5, y: .31, w: .8, align: 'center', style: 'pill', anim: 'pop', delay: 2.4 },
+    distance: { x: .5, y: .327, w: .8, align: 'center', style: 'pill', anim: 'pop', delay: 2.4 },
     dates: { y: .485, size: 110 },
     site: { y: .575, size: 76 },
     address: { y: .688 },
@@ -244,8 +244,8 @@ const TEMPLATE_LAYOUT = {
     footer: { y: .943 },
   },
   rays: {
-    kicker: { align: 'center', x: .5, y: .045 },
-    headline: { align: 'center', x: .5, y: .098, w: .9 },
+    kicker: { align: 'center', x: .5, y: .034 },
+    headline: { align: 'center', x: .5, y: .114, w: .9 },
     countdown: { x: .86, y: .305, size: 48, rot: -10 },
     dates: { align: 'center', x: .5, y: .39, style: 'pill', size: 120 },
     site: { align: 'center', x: .5, y: .52, rot: 0 },
@@ -311,13 +311,21 @@ function freshState() {
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
-const LAYOUT_VERSION = 3;
+const LAYOUT_VERSION = 4;
+// v4 only moved the shout-out and headline: drop saved values still at the old defaults, keep anything hand-placed
+const V4_OLD_Y = { kicker: { ticker: .068, sticker: .045, map: .035, rays: .045 }, headline: { ticker: .122, sticker: .1, map: .085, rays: .098 }, distance: { map: .31 } };
 const OLD_DEFAULT_TEXTS = {
   headline: ['Early\nvoting is\nopen!'],
   footer: ['Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov'],
   tap: ['Tap to find your\nvoting spot →', 'Tap to find\nyour spot'],
 };
 function merge(fresh, saved) {
+  if ((saved.layoutVersion || 1) === 3) {
+    saved = { ...saved, layoutVersion: LAYOUT_VERSION, layouts: structuredClone(saved.layouts || {}) };
+    for (const [key, lay] of Object.entries(saved.layouts)) for (const [id, olds] of Object.entries(V4_OLD_Y)) {
+      if (lay[id] && lay[id].y === olds[key.split(':')[0]]) delete lay[id].y;
+    }
+  }
   if ((saved.layoutVersion || 1) < LAYOUT_VERSION) {
     saved = { ...saved, layoutVersion: LAYOUT_VERSION, texts: { ...(saved.texts || {}) } };
     delete saved.layouts;
