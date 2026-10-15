@@ -140,9 +140,11 @@ function candidates(school) {
     const d = miles(school.lat, school.lon, s.lat, s.lon);
     const onCampus = !!school.campusKey && s.name.includes(school.campusKey);
     return { site: s, d, onCampus };
-  }).sort((a, b) => (b.onCampus - a.onCampus) || (a.d - b.d));
+  }).sort((a, b) => ((b.site.id === school.pdfSite) - (a.site.id === school.pdfSite)) || (b.onCampus - a.onCampus) || (a.d - b.d));
   return (candCache[school.id] = list);
 }
+// the school's flyer name for its flyer site, otherwise the official name
+function siteName(school, site) { return site.id === school.pdfSite && school.pdfLabel || site.nice; }
 function chosen(school) {
   const ov = state.overrides[school.id] || {};
   const list = candidates(school);
@@ -347,7 +349,7 @@ function contentFor(sc) {
   return {
     tokens: {
       school: sc.name, short: sc.short, mascot: sc.mascot,
-      site: ov.siteLabel || site.nice, street: titleStreet(site.street), city: site.city, county: site.county + ' County',
+      site: ov.siteLabel || siteName(sc, site), street: titleStreet(site.street), city: site.city, county: site.county + ' County',
       proximity, miles: c.d.toFixed(1), travel,
       span: sameMon ? `${fmtDay(sch.first)}–${sch.last.getDate()}` : `${fmtDay(sch.first)} – ${fmtDay(sch.last)}`,
       start: fmtDay(sch.first), end: fmtDay(sch.last),
@@ -875,7 +877,7 @@ function renderSchoolList() {
     const c = chosen(s), cols = (state.overrides[s.id] || {}).colors || s.colors;
     const li = document.createElement('li');
     const on = c && c.onCampus && c.d < 1.2;
-    li.innerHTML = `<button class="${s.id === state.schoolId ? 'active' : ''}">${swatchHTML(cols)}<span class="sname">${s.short}<span class="ssub">${c ? esc(c.site.nice) : 'no site'}</span></span><span class="dist ${on ? 'on' : ''}">${c ? (on ? 'on campus' : c.d.toFixed(1) + 'mi') : ''}</span></button>`;
+    li.innerHTML = `<button class="${s.id === state.schoolId ? 'active' : ''}">${swatchHTML(cols)}<span class="sname">${s.short}<span class="ssub">${c ? esc(siteName(s, c.site)) : 'no site'}</span></span><span class="dist ${on ? 'on' : ''}">${c ? (on ? 'on campus' : c.d.toFixed(1) + 'mi') : ''}</span></button>`;
     li.firstChild.onclick = () => selectSchool(s.id);
     ul.appendChild(li);
   }
@@ -897,7 +899,7 @@ function renderSiteNote() {
   const flags = [];
   if (site.geo !== 'census') flags.push('map position approximate');
   if (!c.onCampus && c.d > 3) flags.push('nearest site is over 3 mi away');
-  $('#siteNote').innerHTML = `<b>${esc(sc.name)}</b> → <b>${esc(site.nice)}</b>, ${esc(titleStreet(site.street))}, ${esc(site.city)} (${esc(site.county)} Co.) · ${c.d.toFixed(2)} mi` +
+  $('#siteNote').innerHTML = `<b>${esc(sc.name)}</b> → <b>${esc(siteName(sc, site))}</b>${site.id === sc.pdfSite ? ' (from school flyer)' : ''}, ${esc(titleStreet(site.street))}, ${esc(site.city)} (${esc(site.county)} Co.) · ${c.d.toFixed(2)} mi` +
     (flags.length ? ` · <span class="warn">⚠ ${flags.join('; ')}</span>` : '') +
     `<br>Source: ${esc(META.source)}, retrieved ${META.retrieved}. Check with the county board before posting.`;
 }
@@ -909,11 +911,12 @@ function renderContentTab() {
   const sel = $('#siteSelect'); sel.innerHTML = '';
   candidates(sc).forEach((c, i) => {
     const o = document.createElement('option'); o.value = c.site.id;
-    o.textContent = `${c.onCampus ? '★ ' : ''}${c.site.nice} — ${c.d.toFixed(1)} mi${i === 0 ? ' (default)' : ''}`;
+    o.textContent = `${c.onCampus ? '★ ' : ''}${siteName(sc, c.site)} — ${c.d.toFixed(1)} mi${c.site.id === sc.pdfSite ? ' (school flyer)' : i === 0 ? ' (default)' : ''}`;
     sel.appendChild(o);
   });
   sel.value = chosen(sc) ? chosen(sc).site.id : '';
   $('#siteLabel').value = ov.siteLabel || '';
+  $('#siteLabel').placeholder = chosen(sc) ? siteName(sc, chosen(sc).site) : '';
   $('#schoolHeadline').value = ov.headline || '';
   const cols = ov.colors || sc.colors;
   ['c0', 'c1', 'c2'].forEach((id, i) => $('#' + id).value = cols[i]);
@@ -1046,7 +1049,7 @@ function renderGrid() {
     const c = chosen(s);
     card.appendChild(cv);
     const info = document.createElement('div');
-    info.innerHTML = `<b>${esc(s.short)}</b><span>${c ? esc(c.site.nice) + ' · ' + c.d.toFixed(1) + ' mi' : 'no site'}</span>`;
+    info.innerHTML = `<b>${esc(s.short)}</b><span>${c ? esc(siteName(s, c.site)) + ' · ' + c.d.toFixed(1) + ' mi' : 'no site'}</span>`;
     card.appendChild(info);
     card.onclick = () => { selectSchool(s.id); setView('single'); };
     grid.appendChild(card);
@@ -1060,7 +1063,7 @@ function renderTable() {
     if (!c.onCampus && c.d > 3) flags.push('>3 mi');
     if (c.onCampus && c.d >= 1.2) flags.push('campus-run site, but >1.2 mi from the campus point');
     const sch = scheduleInfo(c.site);
-    return `<tr><td><b>${esc(s.short)}</b><br><span class="muted">${esc(s.county)} Co.</span></td><td>${c.onCampus ? '★ ' : ''}${esc(c.site.nice)}<br><span class="muted">${esc(titleStreet(c.site.street))}, ${esc(c.site.city)} ${c.site.zip}</span></td>
+    return `<tr><td><b>${esc(s.short)}</b><br><span class="muted">${esc(s.county)} Co.</span></td><td>${c.onCampus ? '★ ' : ''}${esc(siteName(s, c.site))}${c.site.id === s.pdfSite ? ' <span class="muted">(school flyer' + (s.pdfLabel !== c.site.nice ? '; official: ' + esc(c.site.nice) : '') + ')</span>' : ''}<br><span class="muted">${esc(titleStreet(c.site.street))}, ${esc(c.site.city)} ${c.site.zip}</span></td>
       <td class="num">${c.d.toFixed(2)} mi</td><td class="num">${fmtDay(sch.first)}–${fmtDay(sch.last)}</td><td>${sch.compact.map(esc).join('<br>')}</td>
       <td>${s.colors.map(x => `<span class="swatch" style="display:inline-grid;width:18px;height:18px;vertical-align:middle;background:${x}"></span>`).join(' ')}</td>
       <td class="warn">${flags.length ? '⚠ ' + flags.join('; ') : ''}</td></tr>`;
