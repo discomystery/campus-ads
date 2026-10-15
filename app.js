@@ -166,6 +166,7 @@ const LAYERS = [
   { id: 'cta', label: 'Call to action', kind: 'text', font: 'body', weight: 800, lh: 1.15 },
   { id: 'footer', label: 'Footer', kind: 'text', font: 'body', weight: 600, lh: 1.25 },
   { id: 'countdown', label: 'Countdown sticker', kind: 'text', font: 'display', upper: true, lh: .9, fit: true },
+  { id: 'tap', label: 'Tap prompt', kind: 'text', font: 'display', upper: true, lh: .95 },
 ];
 const LAYER = Object.fromEntries(LAYERS.map(l => [l.id, l]));
 
@@ -180,6 +181,7 @@ const DEFAULT_TEXTS = {
   cta: 'Not registered? Register + vote the same day.',
   footer: 'Bring a photo ID (many NC student IDs count) · ncsbe.gov',
   countdown: '{countdown}',
+  tap: 'Tap to find\nyour spot',
 };
 const TOKENS = [
   ['{school}', 'Full school name'], ['{short}', 'Short name'], ['{mascot}', 'Mascot'],
@@ -189,6 +191,12 @@ const TOKENS = [
   ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left sticker text'],
 ];
 
+const TEMPLATES = {
+  ticker:  { name: 'Ticker', desc: 'Scrolling tape + floating shapes' },
+  sticker: { name: 'Sticker Bomb', desc: 'Chunky cards, ballot box, confetti' },
+  map:     { name: 'Map Drop', desc: 'Route from campus to the pin' },
+  rays:    { name: 'Sunburst', desc: 'Spinning rays, centered type' },
+};
 const base = {
   campus:    { x: .2,  y: .6,   size: 60,  visible: false, anim: 'pop',  delay: .8, idle: 'none' },
   pin:       { x: .78, y: .5,   size: 120, visible: false, anim: 'drop', delay: 1.0, idle: 'float' },
@@ -203,6 +211,7 @@ const base = {
   cta:       { x: .07, y: .838, w: .86, size: 40, align: 'left', style: 'pill', color: 'pop', fitMin: .8, anim: 'up', delay: 1.9, idle: 'pulse' },
   footer:    { x: .07, y: .9, w: .86, size: 29, align: 'left', style: 'plain', fitMin: .85, anim: 'fade', delay: 2.1 },
   countdown: { x: .82, y: .345, w: .26, size: 56, align: 'center', style: 'sticker', rot: 10, anim: 'pop', delay: 1.6, idle: 'wiggle' },
+  tap:       { x: .07, y: .545, w: .86, size: 130, align: 'left', style: 'card', icon: 'arrow', rot: -1.5, visible: false, anim: 'slam', delay: 1.1, idle: 'pulse' },
 };
 const layerDefaults = { visible: true, w: .86, size: 40, align: 'left', style: 'plain', rot: 0, color: 'auto', icon: 'none', anim: 'fade', delay: 0, idle: 'none' };
 const TEMPLATE_LAYOUT = {
@@ -247,18 +256,27 @@ const TEMPLATE_LAYOUT = {
     footer: { align: 'center', x: .5, y: .908 },
   },
 };
-function defaultLayout(tpl) {
-  const out = {};
-  for (const l of LAYERS) out[l.id] = { ...layerDefaults, ...base[l.id], ...(TEMPLATE_LAYOUT[tpl][l.id] || {}) };
+// "Call to action" version: no site, address, hours, distance or ID line, just a big tap prompt
+const VARIANTS = { full: 'Full details', cta: 'Call to action' };
+const CTA_HIDE = { site: { visible: false }, address: { visible: false }, distance: { visible: false }, hours: { visible: false }, footer: { visible: false } };
+const CTA_LAYOUT = {
+  ticker: { tap: { visible: true }, cta: { y: .825, size: 46, delay: 1.6 }, countdown: { delay: 1.4 } },
+  sticker: { tap: { visible: true, y: .58, rot: -2 }, cta: { y: .865, size: 46, delay: 1.6 }, countdown: { delay: 1.4 } },
+  map: {
+    campus: { y: .37 }, pin: { y: .39 }, dates: { y: .445 },
+    tap: { visible: true, y: .56 }, cta: { y: .85, size: 46, delay: 1.6 },
+  },
+  rays: { tap: { visible: true, x: .5, y: .535, align: 'center', rot: 0 }, cta: { y: .825, size: 46, delay: 1.6 }, countdown: { delay: 1.4 } },
+};
+const LAYOUT_KEYS = Object.keys(TEMPLATES).flatMap(t => [t, t + ':cta']);
+const layoutKey = () => state.template + (state.variant === 'cta' ? ':cta' : '');
+function defaultLayout(key) {
+  const [tpl, variant] = key.split(':'), out = {};
+  for (const l of LAYERS) out[l.id] = { ...layerDefaults, ...base[l.id], ...(TEMPLATE_LAYOUT[tpl][l.id] || {}),
+    ...(variant === 'cta' ? { ...(CTA_HIDE[l.id] || {}), ...(CTA_LAYOUT[tpl][l.id] || {}) } : {}) };
   return out;
 }
 
-const TEMPLATES = {
-  ticker:  { name: 'Ticker', desc: 'Scrolling tape + floating shapes' },
-  sticker: { name: 'Sticker Bomb', desc: 'Chunky cards, ballot box, confetti' },
-  map:     { name: 'Map Drop', desc: 'Route from campus to the pin' },
-  rays:    { name: 'Sunburst', desc: 'Spinning rays, centered type' },
-};
 const FONT_PRESETS = {
   loud:     { name: 'Loud — Anton + Archivo', display: 'Anton', dw: 400, body: 'Archivo' },
   bubbly:   { name: 'Bubbly — Bowlby One + DM Sans', display: 'Bowlby One', dw: 400, body: 'DM Sans', scale: .78 },
@@ -283,7 +301,8 @@ function freshState() {
     asOf: todayISO(),
     tickerText: 'EARLY VOTING ✶ {short} ✶ {span} ✶ ',
     texts: { ...DEFAULT_TEXTS },
-    layouts: Object.fromEntries(Object.keys(TEMPLATES).map(t => [t, defaultLayout(t)])),
+    variant: 'full',
+    layouts: Object.fromEntries(LAYOUT_KEYS.map(k => [k, defaultLayout(k)])),
     overrides: {},
     layoutVersion: LAYOUT_VERSION,
     filter: 'all',
@@ -306,7 +325,7 @@ function merge(fresh, saved) {
   const s = { ...fresh, ...saved };
   s.texts = { ...fresh.texts, ...(saved.texts || {}) };
   s.layouts = {};
-  for (const t of Object.keys(TEMPLATES)) {
+  for (const t of LAYOUT_KEYS) {
     s.layouts[t] = {};
     for (const l of LAYERS) s.layouts[t][l.id] = { ...fresh.layouts[t][l.id], ...((saved.layouts || {})[t] || {})[l.id] };
   }
@@ -324,7 +343,7 @@ function save() {
   saveTimer = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} }, 250);
 }
 const school = () => SCHOOLS.find(s => s.id === state.schoolId);
-const layout = () => state.layouts[state.template];
+const layout = () => state.layouts[layoutKey()];
 
 /* ---------- per-school derived content ---------- */
 function paletteFor(sc) {
@@ -429,6 +448,10 @@ function icon(ctx, kind, x, y, s, color) { // x,y = center
   } else if (kind === 'clock') {
     ctx.beginPath(); ctx.arc(x, y, s * .38, 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x, y - s * .2); ctx.lineTo(x, y); ctx.lineTo(x + s * .15, y + s * .1); ctx.stroke();
+  } else if (kind === 'arrow') {
+    const hw = s * .42, sh = s * .14;
+    ctx.beginPath(); ctx.moveTo(x - hw, y - sh); ctx.lineTo(x + s * .02, y - sh); ctx.lineTo(x + s * .02, y - s * .34); ctx.lineTo(x + hw, y);
+    ctx.lineTo(x + s * .02, y + s * .34); ctx.lineTo(x + s * .02, y + sh); ctx.lineTo(x - hw, y + sh); ctx.closePath(); ctx.fill();
   } else if (kind === 'cal') {
     roundRect(ctx, x - s * .38, y - s * .32, s * .76, s * .7, s * .1); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x - s * .38, y - s * .1); ctx.lineTo(x + s * .38, y - s * .1); ctx.stroke();
@@ -567,6 +590,7 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   const padX = style === 'pill' ? size * .6 : style === 'card' ? size * .5 : 0;
   const padY = style === 'pill' ? size * .3 : style === 'card' ? size * .38 : 0;
   const hasIcon = L.icon && L.icon !== 'none';
+  const iconEnd = L.icon === 'arrow' || L.align === 'right'; // arrows trail the text, other icons lead it
   const iconW = hasIcon ? size * 1.15 : 0;
   const maxW = L.w * W - padX * 2 - iconW;
 
@@ -653,15 +677,15 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   const baseOff = (mH.actualBoundingBoxAscent - (def.upper ? 0 : mG.actualBoundingBoxDescent * .5)) / 2;
   const iconCol = style === 'plain' || style === 'outline' ? (contrast(pick || pal.pop, pal.bg) >= 2.5 ? (pick || pal.pop) : pal.ink) : textCol;
   if (hasIcon) {
-    const ix = (L.align === 'right' ? x0 + bw - padX - iconW / 2 : x0 + padX + iconW / 2) - (L.align === 'right' ? 0 : size * .08);
-    icon(ctx, L.icon, ix, y0 + padY + lh / 2, size * 1.0, iconCol);
+    const ix = (iconEnd ? x0 + bw - padX - iconW / 2 : x0 + padX + iconW / 2) - (iconEnd ? 0 : size * .08);
+    icon(ctx, L.icon, ix, y0 + padY + (L.icon === 'arrow' ? lines.length * lh / 2 : lh / 2), size * 1.0, iconCol);
   }
   let shown = 0;
   lines.forEach((ln, i) => {
     let s = ln;
     if (reveal !== Infinity) { const left = reveal - shown; s = left <= 0 ? '' : ln.slice(0, left); shown += ln.length + 1; }
     const lw = widths[i];
-    const innerL = x0 + padX + (L.align === 'right' ? 0 : iconW), innerR = x0 + bw - padX - (L.align === 'right' ? iconW : 0);
+    const innerL = x0 + padX + (iconEnd ? 0 : iconW), innerR = x0 + bw - padX - (iconEnd ? iconW : 0);
     let tx;
     if (style === 'sticker') { ctx.textAlign = 'center'; tx = cx; }
     else if (L.align === 'center') { ctx.textAlign = 'center'; tx = (innerL + innerR) / 2; }
@@ -775,7 +799,7 @@ function drawRoute(ctx, pal, t, lay) {
 }
 
 /* ---------- frame render ---------- */
-const ORDER = ['campus', 'pin', 'ballot', 'kicker', 'headline', 'dates', 'site', 'address', 'distance', 'hours', 'cta', 'footer', 'countdown'];
+const ORDER = ['campus', 'pin', 'ballot', 'kicker', 'headline', 'dates', 'site', 'address', 'distance', 'hours', 'tap', 'cta', 'footer', 'countdown'];
 function renderFrame(ctx, sc, t, opts = {}) {
   const pal = paletteFor(sc), content = contentFor(sc), lay = layout();
   const boxes = {};
@@ -977,7 +1001,7 @@ function renderLayerList() {
 }
 const STYLE_OPTS = { plain: 'Plain', pill: 'Pill', card: 'Card', highlight: 'Highlighter', sticker: 'Sticker', outline: 'Outline' };
 const COLOR_OPTS = { auto: 'Auto', ink: 'Ink', pop: 'Pop', primary: 'Primary', secondary: 'Secondary', accent: 'Accent', white: 'White', black: 'Black' };
-const ICON_OPTS = { none: 'None', pin: 'Pin', clock: 'Clock', cal: 'Calendar', check: 'Check', star: 'Star' };
+const ICON_OPTS = { none: 'None', pin: 'Pin', clock: 'Clock', cal: 'Calendar', check: 'Check', star: 'Star', arrow: 'Arrow' };
 function selectHTML(key, opts, val) { return `<select data-k="${key}">${Object.entries(opts).map(([k, v]) => `<option value="${k}" ${k === val ? 'selected' : ''}>${v}</option>`).join('')}</select>`; }
 function renderLayerProps() {
   const box = $('#layerProps'), L = layout()[selected], def = LAYER[selected];
@@ -1014,8 +1038,8 @@ function syncPropInputs() {
 }
 function replayFrom(s) { t = Math.max(0, s - .3); if (!playing) togglePlay(); }
 $('#resetLayout').onclick = () => {
-  if (!confirm(`Reset the ${TEMPLATES[state.template].name} layout to its defaults?`)) return;
-  state.layouts[state.template] = defaultLayout(state.template); save(); renderLayerList(); renderLayerProps();
+  if (!confirm(`Reset the ${TEMPLATES[state.template].name} (${VARIANTS[state.variant]}) layout to its defaults?`)) return;
+  state.layouts[layoutKey()] = defaultLayout(layoutKey()); save(); renderLayerList(); renderLayerProps();
 };
 
 /* ---------- UI: style tab ---------- */
@@ -1091,12 +1115,16 @@ function renderTable() {
 }
 function setView(v) {
   view = v;
-  $$('.seg').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  $$('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   $('#stageSingle').hidden = v !== 'single'; $('#stageGrid').hidden = v !== 'grid'; $('#stageTable').hidden = v !== 'table';
   refreshAltViews();
 }
 function refreshAltViews() { if (view === 'grid') renderGrid(); if (view === 'table') renderTable(); }
-$$('.seg').forEach(b => b.onclick = () => setView(b.dataset.view));
+$$('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
+function renderVariant() { $$('[data-variant]').forEach(b => b.classList.toggle('active', b.dataset.variant === state.variant)); }
+$$('[data-variant]').forEach(b => b.onclick = () => {
+  state.variant = b.dataset.variant; save(); renderVariant(); renderLayerList(); renderLayerProps(); t = 0; refreshAltViews();
+});
 $('#gridTime').onchange = () => renderGrid();
 
 /* ---------- export ---------- */
@@ -1111,7 +1139,7 @@ $('#formatNote').textContent = !MIME ? 'This browser cannot record video. Try Ch
   : MIME.startsWith('video/mp4') ? 'Records MP4, but this browser may not use H.264. If Instagram rejects the file, record in Chrome or convert it (e.g. HandBrake).'
   : 'This browser records WebM. Instagram needs MP4: use Chrome or Safari, or convert the file (e.g. HandBrake).';
 function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40); }
-function fileBase(sc) { const c = chosen(sc); return `early-vote_${sc.id}_${c ? slug(c.site.nice) : 'site'}`; }
+function fileBase(sc) { const c = chosen(sc); return `early-vote_${sc.id}_${state.variant === 'cta' ? 'cta' : c ? slug(c.site.nice) : 'site'}`; }
 function download(blob, name) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
@@ -1189,7 +1217,7 @@ $('#resetAll').onclick = () => { if (confirm('Reset all text, layouts, colors an
 function initUI() {
   $('#search').value = state.search;
   $$('#filters .chip').forEach(x => x.classList.toggle('active', x.dataset.f === state.filter));
-  renderSchoolList(); renderContentTab(); renderTextFields(); renderStyleTab(); renderLayerList(); renderLayerProps(); renderSiteNote();
+  renderSchoolList(); renderContentTab(); renderTextFields(); renderStyleTab(); renderLayerList(); renderLayerProps(); renderSiteNote(); renderVariant();
   refreshAltViews();
 }
 initUI();
