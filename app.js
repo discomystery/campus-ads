@@ -1162,8 +1162,10 @@ function drawOverlay() {
     ovCtx.restore();
   }
 }
+let exporting = false; // batch/fast export in progress: skip the live preview so it doesn't compete
 function tick(now) {
   const dt = Math.min(.1, (now - lastNow) / 1000); lastNow = now;
+  if (exporting) { requestAnimationFrame(tick); return; }
   if (playing) { t += dt; if (t >= state.duration) t = recording ? state.duration : 0; }
   boxes = renderFrame(adCtx, school(), t);
   drawOverlay();
@@ -1457,6 +1459,53 @@ function pickMime() {
   return window.MediaRecorder ? types.find(x => MediaRecorder.isTypeSupported(x)) : null;
 }
 const MIME = pickMime();
+
+/* Fast video: render each frame off-screen and encode with WebCodecs (much faster than real time).
+   H.264 where the browser has it, VP9 otherwise; MediaRecorder screen recording is the last resort. */
+const FPS = 30;
+const FAST_CODECS = [
+  { mux: 'avc', codec: 'avc1.640028' }, { mux: 'avc', codec: 'avc1.4d0028' }, { mux: 'avc', codec: 'avc1.42e028' },
+  { mux: 'vp9', codec: 'vp09.00.40.08' },
+];
+const fastCodec = (async () => {
+  if (!window.VideoEncoder || !window.Mp4Muxer) return null;
+  for (const c of FAST_CODECS) {
+    const config = { codec: c.codec, width: W, height: H, bitrate: 10e6, framerate: FPS, ...(c.mux === 'avc' ? { avc: { format: 'avc' } } : {}) };
+    try { if ((await VideoEncoder.isConfigSupported(config)).supported) return { ...c, config }; } catch {}
+  }
+  return null;
+})();
+// yield without setTimeout, which background tabs throttle
+const yieldNow = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
+// prep() runs before every frame so several encodes can interleave (each sets its own school/design)
+async function encodeVideo(sc, onFrame, prep) {
+  const fc = await fastCodec, n = Math.round(state.duration * FPS);
+  const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: fc.mux, width: W, height: H, frameRate: FPS }, fastStart: 'in-memory' });
+  let failure = null;
+  const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { failure = e; } });
+  enc.configure(fc.config);
+  for (let i = 0; i < n; i++) {
+    if (failure) throw failure;
+    if (prep) prep();
+    renderFrame(offCtx, sc, i / FPS);
+    const frame = new VideoFrame(offscreen, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+    enc.encode(frame, { keyFrame: i % (FPS * 2) === 0 }); frame.close();
+    while (enc.encodeQueueSize > 6) await yieldNow();
+    if (i % 15 === 0) { onFrame && onFrame(i / n); await yieldNow(); }
+  }
+  await enc.flush(); enc.close();
+  if (failure) throw failure;
+  muxer.finalize();
+  return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+}
+// one video for a school in the current design: fast path if available, else real-time recording
+async function makeVideo(sc, onFrame) {
+  if (await fastCodec) return encodeVideo(sc, onFrame);
+  return recordCurrent();
+}
+fastCodec.then(fc => { if (fc) $('#formatNote').textContent = fc.mux === 'avc'
+  ? 'Exports MP4 (H.264) at 1080×1350, ready for Instagram, rendered faster than real time.'
+  : 'Exports MP4 (VP9) faster than real time. This browser has no H.264 encoder; if Instagram rejects the file, export in Chrome.'; bxSummary(); });
 $('#formatNote').textContent = !MIME ? 'This browser cannot record video. Try Chrome.'
   : MIME.includes('avc1') ? 'Records MP4 (H.264) in real time at 1080×1350, ready for Instagram.'
   : MIME.startsWith('video/mp4') ? 'Records MP4, but this browser may not use H.264. If Instagram rejects the file, record in Chrome or convert it (e.g. HandBrake).'
@@ -1483,11 +1532,16 @@ function recordCurrent() {
   });
 }
 function setBusy(b) { $$('#exportVideo,#exportPng,#bxStart,#bxThisSchool,#bxThisDesign').forEach(x => x.disabled = b); if (!b) bxSummary(); }
-const ext = () => MIME && MIME.startsWith('video/mp4') ? 'mp4' : 'webm';
+let fastReady = null; fastCodec.then(fc => { fastReady = fc; });
+const ext = () => fastReady || (MIME && MIME.startsWith('video/mp4')) ? 'mp4' : 'webm';
 $('#exportVideo').onclick = async () => {
   setView('single'); setBusy(true);
-  try { const blob = await recordCurrent(); download(blob, `${fileBase(school())}.${ext()}`); }
-  catch (e) { alert(e.message); }
+  try {
+    const fast = await fastCodec; if (fast) { exporting = true; progress(0, 1, 'Rendering video…'); }
+    const blob = await makeVideo(school(), f => progress(f, 1, `Rendering video… ${Math.round(f * 100)}%`));
+    download(blob, `${fileBase(school())}.${ext()}`); if (fast) progress(1, 1, 'Done ✓');
+  } catch (e) { alert(e.message); }
+  exporting = false;
   setBusy(false);
 };
 // stills use the paused playhead; while playing, a frame after every entrance and before the fade
@@ -1503,7 +1557,7 @@ function progress(i, n, label) {
 /* ---------- batch export: any schools × any designs ---------- */
 const designLabel = k => `${TEMPLATES[k.split(':')[0]].name} · ${k.endsWith(':cta') ? 'CTA' : 'Full'}`;
 const designSlug = k => k.replace(':', '-');
-let bxCancel = false;
+let bxCancel = false, secsPerVideo = 3; // updated from real encode times
 function bxSel() { state.batch = state.batch || { schools: [state.schoolId], designs: [layoutKey()] }; return state.batch; }
 function renderBatch() {
   const sel = bxSel();
@@ -1523,11 +1577,12 @@ function bxSummary() {
   const sel = bxSel(), n = bxJobs().length, video = $('#bxFormat').value === 'video';
   $('#bxSchoolCount').textContent = `${sel.schools.length} of ${SCHOOLS.length}`;
   $('#bxDesignCount').textContent = `${sel.designs.length} of ${LAYOUT_KEYS.length}`;
-  const secs = n * (video ? state.duration + .7 : .35), mb = n * (video ? state.duration * .7 : .6);
+  const perVideo = fastReady ? secsPerVideo : state.duration + .7;
+  const secs = n * (video ? perVideo : .12), mb = n * (video ? state.duration * .7 : .6);
   const time = secs < 90 ? `${Math.max(1, Math.round(secs))} sec` : `${Math.round(secs / 60)} min`;
   const big = $('#bxZip').checked && mb > 1500;
   $('#bxSummary').innerHTML = !n ? 'Pick at least one school and one design.'
-    : `<b>${n} file${n === 1 ? '' : 's'}</b> · about ${time}${video ? ' (videos record in real time; keep this tab in front)' : ''} · ~${mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : Math.round(mb) + ' MB'}` +
+    : `<b>${n} file${n === 1 ? '' : 's'}</b> · about ${time}${video && !fastReady ? ' (videos record in real time; keep this tab in front)' : ''} · ~${mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : Math.round(mb) + ' MB'}` +
       (big ? '<br><span class="warn">That ZIP would be very large. Uncheck “Bundle” to download files one by one, or export in smaller batches.</span>' : '');
   $('#bxStart').disabled = !n || big;
   $('#bxGroup').disabled = !$('#bxZip').checked;
@@ -1549,30 +1604,64 @@ $('#bxCancel').onclick = () => { bxCancel = true; $('#bxCancel').textContent = '
 $('#bxStart').onclick = async () => {
   const jobs = bxJobs(), video = $('#bxFormat').value === 'video', zip = $('#bxZip').checked, group = $('#bxGroup').value;
   if (!jobs.length) return;
-  if (video && !MIME) { alert('This browser cannot record video. Try Chrome.'); return; }
-  if (video && jobs.length > 3 && !confirm(`Record ${jobs.length} videos? This takes about ${Math.ceil(jobs.length * (state.duration + .7) / 60)} min. Keep this tab in front while it runs.`)) return;
+  const fast = video && await fastCodec;
+  if (video && !fast && !MIME) { alert('This browser cannot export video. Try Chrome.'); return; }
+  const est = Math.ceil(jobs.length * (fast ? secsPerVideo : state.duration + .7) / 60);
+  if (video && jobs.length > 3 && !confirm(`Export ${jobs.length} videos? This takes about ${est} min.${fast ? '' : ' Keep this tab in front while it runs.'}`)) return;
   const keep = { schoolId: state.schoolId, template: state.template, variant: state.variant }, files = [], ex = video ? ext() : 'png';
+  const pathFor = (sc, d) => { const name = `early-vote_${sc.id}_${designSlug(d)}.${ex}`; return { name, path: group === 'school' ? `${sc.id}/${name}` : group === 'design' ? `${designSlug(d)}/${name}` : name }; };
+  const deliver = async (sc, d, blob) => { const { name, path } = pathFor(sc, d); if (zip) files.push({ path, blob }); else { download(blob, name); await new Promise(r => setTimeout(r, 350)); } };
   bxCancel = false; setBusy(true); $('#bxCancel').hidden = false; $('#bxCancel').textContent = 'Stop after this file';
-  if (video) setView('single');
+  exporting = !video || !!fast; // the live preview is only needed for real-time recording
+  if (video && !fast) setView('single');
+  const started = performance.now();
   try {
+    const pending = []; // stills: PNG encoding runs in the background while the next frame renders
     for (let i = 0; i < jobs.length && !bxCancel; i++) {
       const { sc, d } = jobs[i], [tpl, v] = d.split(':');
       state.schoolId = sc.id; state.template = tpl; state.variant = v ? 'cta' : 'full';
-      progress(i, jobs.length, `${video ? 'Recording' : 'Rendering'} ${sc.short} · ${designLabel(d)} (${i + 1}/${jobs.length})`);
-      let blob;
-      if (video) { renderSchoolList(); renderVariant(); blob = await recordCurrent(); }
-      else { renderFrame(offCtx, sc, state.duration * .6, { still: true }); blob = await new Promise(r => offscreen.toBlob(r, 'image/png')); }
-      const name = `early-vote_${sc.id}_${designSlug(d)}.${ex}`;
-      if (zip) files.push({ path: group === 'school' ? `${sc.id}/${name}` : group === 'design' ? `${designSlug(d)}/${name}` : name, blob });
-      else { download(blob, name); await new Promise(r => setTimeout(r, 350)); }
-      if (video) await new Promise(r => setTimeout(r, 300));
+      const label = `${sc.short} · ${designLabel(d)} (${i + 1}/${jobs.length})`;
+      if (!video) {
+        progress(i, jobs.length, `Rendering ${label}`);
+        renderFrame(offCtx, sc, state.duration * .6, { still: true });
+        pending.push(new Promise(r => offscreen.toBlob(r, 'image/png')).then(blob => deliver(sc, d, blob)));
+        if (pending.length >= 6) await pending.shift();
+        if (i % 4 === 3) await yieldNow();
+      } else if (fast) {
+        // up to 3 encodes at once: the encoders run on their own threads, frames are drawn in turn
+        const lanes = Math.min(3, jobs.length), done = new Array(jobs.length).fill(0), t0 = performance.now();
+        let next = 0, finished = 0;
+        const lane = async () => {
+          while (next < jobs.length && !bxCancel) {
+            const k = next++, job = jobs[k], [jt, jv] = job.d.split(':');
+            const prep = () => { state.schoolId = job.sc.id; state.template = jt; state.variant = jv ? 'cta' : 'full'; };
+            const blob = await encodeVideo(job.sc, f => {
+              done[k] = f; const total = done.reduce((a, b) => a + b, 0);
+              progress(total, jobs.length, `Rendering ${finished}/${jobs.length} done · ${job.sc.short} · ${designLabel(job.d)}`);
+            }, prep);
+            done[k] = 1; finished++;
+            await deliver(job.sc, job.d, blob);
+          }
+        };
+        await Promise.all(Array.from({ length: lanes }, lane));
+        if (finished) secsPerVideo = (performance.now() - t0) / 1000 / finished;
+        break;
+      } else {
+        progress(i, jobs.length, `Recording ${label}`);
+        renderSchoolList(); renderVariant();
+        await deliver(sc, d, await recordCurrent());
+        await new Promise(r => setTimeout(r, 300));
+      }
     }
+    await Promise.all(pending);
     if (zip && files.length) {
       progress(1, 1, `Zipping ${files.length} files…`);
       download(await makeZip(files), `early-vote-ads_${video ? 'videos' : 'stills'}_${files.length}.zip`);
     }
-    progress(1, 1, bxCancel ? `Stopped after ${files.length || 'some'} files` : 'Done ✓');
+    const took = (performance.now() - started) / 1000;
+    progress(1, 1, `${bxCancel ? 'Stopped' : 'Done ✓'} · ${files.length || jobs.length} files in ${took < 90 ? Math.round(took) + ' sec' : Math.round(took / 60) + ' min'}`);
   } catch (e) { alert(e.message); }
+  exporting = false;
   Object.assign(state, keep); t = 0;
   setBusy(false); $('#bxCancel').hidden = true;
   renderSchoolList(); renderContentTab(); renderSiteNote(); renderStyleTab(); renderVariant(); renderLayerList(); renderLayerProps(); renderTextFields();
