@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campus Early Vote Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;600;700;800;900&family=Bowlby+One&family=DM+Sans:wght@400;600;700;800&family=Bungee&family=Space+Grotesk:wght@400;600;700&family=Permanent+Marker&family=Rubik:wght@400;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">✶</span>
+    <div>
+      <h1>Campus Early Vote Studio</h1>
+      <p class="sub">4:5 animated PSAs · NC early voting, Oct 15 – Oct 31, 2026</p>
+    </div>
+  </div>
+  <div class="view-toggle" role="tablist">
+    <button class="seg active" data-view="single">Editor</button>
+    <button class="seg" data-view="grid">All schools</button>
+    <button class="seg" data-view="table">Data check</button>
+  </div>
+</header>
+
+<main class="app">
+  <!-- Schools -->
+  <aside class="panel left">
+    <input id="search" type="search" placeholder="Search schools…" autocomplete="off">
+    <div class="chips" id="filters">
+      <button class="chip active" data-f="all">All</button>
+      <button class="chip" data-f="public">UNC System</button>
+      <button class="chip" data-f="hbcu">HBCUs</button>
+      <button class="chip" data-f="private">Private</button>
+    </div>
+    <ul id="schoolList" class="school-list"></ul>
+  </aside>
+
+  <!-- Stage -->
+  <section class="stage" id="stageSingle">
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="ad" width="1080" height="1350"></canvas>
+      <canvas id="overlay" width="1080" height="1350"></canvas>
+      <div class="rec-badge" id="recBadge" hidden>● REC</div>
+    </div>
+    <div class="transport">
+      <button id="playBtn" class="icon-btn" title="Play / pause (space)">❚❚</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0">
+      <span id="timeRead" class="mono">0.0s</span>
+    </div>
+    <div class="site-note" id="siteNote"></div>
+  </section>
+
+  <section class="stage grid-stage" id="stageGrid" hidden>
+    <div class="grid-head">
+      <p>Every ad, frozen at <input id="gridTime" type="number" step="0.5" min="0" value="4" class="num-sm">s. Click any card to edit it.</p>
+    </div>
+    <div class="ad-grid" id="adGrid"></div>
+  </section>
+
+  <section class="stage table-stage" id="stageTable" hidden>
+    <p class="muted">Each school's chosen early voting site. Students can only vote early in the county where they're registered, so the picker only offers sites in the campus county. ⚠ marks places to double-check before publishing.</p>
+    <div class="table-scroll"><table id="dataTable"></table></div>
+  </section>
+
+  <!-- Controls -->
+  <aside class="panel right">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="content">Content</button>
+      <button class="tab" data-tab="layout">Layout</button>
+      <button class="tab" data-tab="style">Style</button>
+      <button class="tab" data-tab="export">Export</button>
+    </div>
+
+    <div class="tab-body" data-body="content">
+      <h3 id="schoolTitle">School</h3>
+      <label>Early voting site
+        <select id="siteSelect"></select>
+      </label>
+      <label>Site label on the ad <span class="hint">(blank = official name)</span>
+        <input id="siteLabel" type="text" placeholder="e.g. Talley Student Union">
+      </label>
+      <div class="color-row">
+        <label>Primary<input type="color" id="c0"></label>
+        <label>Secondary<input type="color" id="c1"></label>
+        <label>Accent<input type="color" id="c2"></label>
+        <button id="resetColors" class="ghost sm" title="Back to default school colors">Reset</button>
+      </div>
+      <label>Headline for this school only <span class="hint">(blank = shared)</span>
+        <textarea id="schoolHeadline" rows="2" placeholder="Leave blank to use the shared headline"></textarea>
+      </label>
+
+      <h3>Shared text <span class="hint">(applies to every school)</span></h3>
+      <div id="textFields"></div>
+      <details class="tokens">
+        <summary>Fill-in tokens</summary>
+        <p>Use these in any text field. They fill in per school:</p>
+        <ul id="tokenList"></ul>
+      </details>
+      <div class="row2">
+        <label>Hours format
+          <select id="hoursMode">
+            <option value="compact">Compact</option>
+            <option value="full">Full schedule</option>
+          </select>
+        </label>
+        <label>Countdown as of
+          <input type="date" id="asOf">
+        </label>
+      </div>
+    </div>
+
+    <div class="tab-body" data-body="layout" hidden>
+      <p class="hint">Drag items on the ad to move them. Arrow keys nudge (hold Shift for bigger steps). Layout is saved per template.</p>
+      <ul id="layerList" class="layer-list"></ul>
+      <div id="layerProps" class="layer-props"></div>
+      <button id="resetLayout" class="ghost">Reset this template's layout</button>
+    </div>
+
+    <div class="tab-body" data-body="style" hidden>
+      <h3>Template</h3>
+      <div id="templatePick" class="template-pick"></div>
+      <label>Type pairing
+        <select id="fontPreset"></select>
+      </label>
+      <label>Background color
+        <select id="colorMode">
+          <option value="primary">Primary color</option>
+          <option value="secondary">Secondary color</option>
+          <option value="dark">Dark (tinted)</option>
+          <option value="paper">Paper (off-white)</option>
+        </select>
+      </label>
+      <label>Background pattern
+        <select id="pattern">
+          <option value="none">None</option>
+          <option value="dots">Dots</option>
+          <option value="halftone">Halftone</option>
+          <option value="stripes">Stripes</option>
+          <option value="grid">Grid</option>
+        </select>
+      </label>
+      <label>Ticker band text <span class="hint">(Ticker template)</span>
+        <input id="tickerText" type="text">
+      </label>
+      <div class="row2">
+        <label>Length (s)
+          <input id="duration" type="number" min="4" max="30" step="0.5">
+        </label>
+        <label>Ending
+          <select id="outro">
+            <option value="none">Hold</option>
+            <option value="fade">Fade out (loops smoothly)</option>
+          </select>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="confetti"> Confetti burst</label>
+      <label class="check"><input type="checkbox" id="guides"> Show safe-zone guides (editor only)</label>
+    </div>
+
+    <div class="tab-body" data-body="export" hidden>
+      <h3>This school</h3>
+      <div class="btn-col">
+        <button id="exportVideo" class="primary">Record video</button>
+        <button id="exportPng" class="ghost">Download still frame (PNG)</button>
+      </div>
+      <p class="hint" id="formatNote"></p>
+      <h3>Batch</h3>
+      <p class="hint">Records every school in the left-hand list (respects search and filters), one file each. Keep this tab visible while it runs. Your browser may ask once to allow multiple downloads.</p>
+      <button id="exportAll" class="primary">Record all listed schools</button>
+      <button id="exportAllPng" class="ghost">Download stills for all listed</button>
+      <div id="batchProgress" class="progress" hidden><div></div><span></span></div>
+      <h3>Settings</h3>
+      <div class="btn-col">
+        <button id="saveSettings" class="ghost">Save settings file (.json)</button>
+        <label class="ghost file-btn">Load settings file<input type="file" id="loadSettings" accept="application/json" hidden></label>
+        <button id="resetAll" class="ghost danger">Reset everything</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
