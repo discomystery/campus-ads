@@ -201,7 +201,7 @@ const base = {
   campus:    { x: .2,  y: .6,   size: 60,  visible: false, anim: 'pop',  delay: .8, idle: 'none' },
   pin:       { x: .78, y: .5,   size: 120, visible: false, anim: 'drop', delay: 1.0, idle: 'float' },
   ballot:    { x: .8,  y: .4,   size: 190, visible: false, anim: 'pop',  delay: 1.2, idle: 'none' },
-  kicker:    { x: .07, y: .061, w: .86, size: 44, align: 'left', style: 'pill', anim: 'left', delay: .1 },
+  kicker:    { x: .07, y: .061, w: .86, size: 44, align: 'left', style: 'pill', fitMin: .7, anim: 'left', delay: .1 },
   headline:  { x: .07, y: .14, w: .86, size: 210, align: 'left', style: 'plain', anim: 'slam', delay: .35 },
   dates:     { x: .07, y: .405, w: .62, size: 130, align: 'left', style: 'highlight', anim: 'wipe', delay: .9 },
   site:      { x: .07, y: .53,  w: .86, size: 84, align: 'left', style: 'card', rot: -1.5, fitMin: .6, anim: 'up', delay: 1.1 },
@@ -230,25 +230,25 @@ const TEMPLATE_LAYOUT = {
     footer: { y: .94 },
   },
   map: {
-    campus: { visible: true, x: .17, y: .425 },
-    pin: { visible: true, x: .8, y: .445 },
+    campus: { visible: true, x: .17, y: .445 },
+    pin: { visible: true, x: .8, y: .468 },
     kicker: { y: .025 },
     headline: { y: .102, w: .7, size: 190 },
     countdown: { x: .865, y: .1, size: 46, rot: 10 },
     distance: { x: .5, y: .327, w: .8, align: 'center', style: 'pill', anim: 'pop', delay: 2.4 },
-    dates: { y: .485, size: 110 },
-    site: { y: .575, size: 76 },
-    address: { y: .688 },
-    hours: { x: .07, y: .733, w: .86, align: 'left' },
+    dates: { y: .505, size: 110 },
+    site: { y: .592, size: 72 },
+    address: { y: .708 },
+    hours: { x: .07, y: .748, w: .86, align: 'left' },
     cta: { y: .88 },
     footer: { y: .943 },
   },
   rays: {
     kicker: { align: 'center', x: .5, y: .034 },
     headline: { align: 'center', x: .5, y: .114, w: .9 },
-    countdown: { x: .86, y: .305, size: 48, rot: -10 },
-    dates: { align: 'center', x: .5, y: .39, style: 'pill', size: 120 },
-    site: { align: 'center', x: .5, y: .52, rot: 0 },
+    countdown: { x: .855, y: .372, size: 46, rot: -10 },
+    dates: { align: 'center', x: .5, y: .382, style: 'pill', size: 120 },
+    site: { align: 'center', x: .5, y: .532, rot: 0 },
     address: { align: 'center', x: .5, y: .655 },
     distance: { y: .708 },
     hours: { y: .708 },
@@ -263,7 +263,7 @@ const CTA_LAYOUT = {
   ticker: { site: { size: 96, fitMin: .5 }, tap: { visible: true, y: .69 }, cta: { y: .82, size: 44, delay: 1.7 } },
   sticker: { site: { size: 92, fitMin: .5 }, tap: { visible: true, y: .725 }, cta: { y: .855, size: 44, delay: 1.7 } },
   map: {
-    campus: { y: .37 }, pin: { y: .39 }, dates: { y: .445 }, site: { y: .54, size: 88, fitMin: .5 },
+    campus: { y: .385 }, pin: { y: .405 }, dates: { y: .455 }, site: { y: .55, size: 88, fitMin: .5 },
     tap: { visible: true, y: .69 }, cta: { y: .825, size: 44, delay: 1.7 },
   },
   rays: { site: { size: 92, fitMin: .5 }, tap: { visible: true, x: .5, y: .675, align: 'center' }, cta: { y: .81, size: 44, delay: 1.7 } },
@@ -311,19 +311,32 @@ function freshState() {
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
-const LAYOUT_VERSION = 4;
-// v4 only moved the shout-out and headline: drop saved values still at the old defaults, keep anything hand-placed
-const V4_OLD_Y = { kicker: { ticker: .068, sticker: .045, map: .035, rays: .045 }, headline: { ticker: .122, sticker: .1, map: .085, rays: .098 }, distance: { map: .31 } };
+const LAYOUT_VERSION = 5;
+// Positions whose defaults moved after v3: [version, layout key, layer, prop, old default]. A saved value still
+// equal to the old default is dropped on load so the new default applies; hand-placed values are kept.
+const LAYOUT_CHANGES = [
+  ...['ticker', 'ticker:cta'].flatMap(k => [[4, k, 'kicker', 'y', .068], [4, k, 'headline', 'y', .122]]),
+  ...['sticker', 'sticker:cta'].flatMap(k => [[4, k, 'kicker', 'y', .045], [4, k, 'headline', 'y', .1]]),
+  ...['map', 'map:cta'].flatMap(k => [[4, k, 'kicker', 'y', .035], [4, k, 'headline', 'y', .085]]),
+  ...['rays', 'rays:cta'].flatMap(k => [[4, k, 'kicker', 'y', .045], [4, k, 'headline', 'y', .098],
+    [5, k, 'countdown', 'x', .86], [5, k, 'countdown', 'y', .305], [5, k, 'countdown', 'size', 48], [5, k, 'dates', 'y', .39], [5, k, 'site', 'y', .52]]),
+  [4, 'map', 'distance', 'y', .31],
+  [5, 'map', 'campus', 'y', .425], [5, 'map', 'pin', 'y', .445], [5, 'map', 'dates', 'y', .485], [5, 'map', 'site', 'y', .575],
+  [5, 'map', 'site', 'size', 76], [5, 'map', 'address', 'y', .688], [5, 'map', 'hours', 'y', .733],
+  [5, 'map:cta', 'campus', 'y', .37], [5, 'map:cta', 'pin', 'y', .39], [5, 'map:cta', 'dates', 'y', .445], [5, 'map:cta', 'site', 'y', .54],
+];
 const OLD_DEFAULT_TEXTS = {
   headline: ['Early\nvoting is\nopen!'],
   footer: ['Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov'],
   tap: ['Tap to find your\nvoting spot →', 'Tap to find\nyour spot'],
 };
 function merge(fresh, saved) {
-  if ((saved.layoutVersion || 1) === 3) {
+  const from = saved.layoutVersion || 1;
+  if (from >= 3 && from < LAYOUT_VERSION) {
     saved = { ...saved, layoutVersion: LAYOUT_VERSION, layouts: structuredClone(saved.layouts || {}) };
-    for (const [key, lay] of Object.entries(saved.layouts)) for (const [id, olds] of Object.entries(V4_OLD_Y)) {
-      if (lay[id] && lay[id].y === olds[key.split(':')[0]]) delete lay[id].y;
+    for (const [ver, key, id, prop, old] of LAYOUT_CHANGES) {
+      const L = (saved.layouts[key] || {})[id];
+      if (ver > from && L && L[prop] === old) delete L[prop];
     }
   }
   if ((saved.layoutVersion || 1) < LAYOUT_VERSION) {
@@ -510,10 +523,15 @@ function tickerBand(ctx, pal, t, yc, h, ang, speed, text) {
   while (x < W) { ctx.fillText(text, x, h * .03); x += unit; }
   ctx.restore();
 }
-function floaters(ctx, pal, t, seed, count, alpha) {
+// floating shapes go only where they clear every element (so they fill empty space instead of cluttering text)
+function floaters(ctx, pal, t, seed, count, alpha, keepOut = [], edge = 0) {
   const r = rng(seed);
-  for (let i = 0; i < count; i++) {
+  for (let i = 0, tries = 0; i < count && tries < count * 12; tries++) {
     const x0 = r() * W, y0 = r() * H, s = 30 + r() * 70, kind = Math.floor(r() * 3), sp = .3 + r() * .6, ph = r() * 6.28;
+    const reach = s * .6 + 34 + 18;
+    if (y0 < edge + reach || y0 > H - edge - reach || x0 < reach * .5 || x0 > W - reach * .5) continue;
+    if (keepOut.some(b => x0 > b.x - reach - 24 && x0 < b.x + b.w + reach + 24 && y0 > b.y - reach - 24 && y0 < b.y + b.h + reach + 24)) continue;
+    i++;
     const x = x0 + Math.sin(t * sp + ph) * 30, y = y0 + Math.cos(t * sp * .8 + ph) * 26, rot = t * sp + ph;
     ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = i % 2 ? pal.pop : pal.ink; ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 10; ctx.lineCap = 'round';
     ctx.translate(x, y); ctx.rotate(rot);
@@ -559,7 +577,7 @@ function drawRays(ctx, pal, t) {
   }
   ctx.restore();
 }
-function drawBackground(ctx, pal, t, sc) {
+function drawBackground(ctx, pal, t, sc, keepOut) {
   ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H);
   const tpl = state.template;
   if (tpl === 'map') {
@@ -568,8 +586,8 @@ function drawBackground(ctx, pal, t, sc) {
   }
   if (tpl === 'rays') drawRays(ctx, pal, t);
   drawPattern(ctx, pal, t);
-  if (tpl === 'ticker') floaters(ctx, pal, t, hashStr(sc.id), 7, .22);
-  if (tpl === 'sticker') floaters(ctx, pal, t, hashStr(sc.id) + 3, 10, .3);
+  if (tpl === 'ticker') floaters(ctx, pal, t, hashStr(sc.id), 7, .22, keepOut, 110);
+  if (tpl === 'sticker') floaters(ctx, pal, t, hashStr(sc.id) + 3, 10, .3, keepOut, 0);
 }
 function drawForeground(ctx, pal, t, content) {
   if (state.template === 'ticker') {
@@ -627,6 +645,7 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
     cx = ax; cy = ay + R;
     box = { x: cx - R, y: cy - R, w: R * 2, h: R * 2, cx, cy, rot: L.rot || 0 };
   }
+  if (opts.measure) return box;
 
   // animation
   const chars = text.length;
@@ -742,9 +761,15 @@ function drawGraphic(ctx, id, L, pal, t, sc, content, opts) {
   const x = L.x * W, y = L.y * H, s = L.size;
   let box;
   if (id === 'pin') box = { x: x - s * .45, y: y - s * 1.05, w: s * .9, h: s * 1.1 };
-  else if (id === 'campus') box = { x: x - s * .9, y: y - s * .5, w: s * 1.8, h: s * 1.35 };
+  else if (id === 'campus') { // include the school-name label under the marker
+    ctx.save(); ctx.font = `800 ${Math.round(s * .42)}px "${FONT_PRESETS[state.font].body}"`;
+    const lw = Math.max(s * 1.8, ctx.measureText(sc.short.toUpperCase()).width + s * .5); ctx.restore();
+    const lx = clamp(x, lw / 2 + 16, W - lw / 2 - 16);
+    box = { x: lx - lw / 2, y: y - s * .5, w: lw, h: s * 1.6 };
+  }
   else box = { x: x - s * .55, y: y - s * .65, w: s * 1.1, h: s * 1.2 };
   box.cx = box.x + box.w / 2; box.cy = box.y + box.h / 2; box.rot = L.rot || 0;
+  if (opts.measure) return box;
   const a = graphicAnim(L, t);
   if (!a.show) return box;
   ctx.save(); ctx.globalAlpha *= a.alpha;
@@ -767,8 +792,9 @@ function drawGraphic(ctx, id, L, pal, t, sc, content, opts) {
     const fp = FONT_PRESETS[state.font];
     ctx.font = `800 ${Math.round(s * .42)}px "${fp.body}"`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const lw = ctx.measureText(label).width + s * .5, lh = s * .62;
-    ctx.fillStyle = pal.ink; roundRect(ctx, x - lw / 2, cy + s * .42, lw, lh, lh / 2); ctx.fill();
-    ctx.fillStyle = inkOn(pal.ink, [pal.bg, pal.p, pal.s, pal.a]); ctx.fillText(label, x, cy + s * .42 + lh / 2 + 1);
+    const lx = clamp(x, lw / 2 + 16, W - lw / 2 - 16); // keep long names on the canvas
+    ctx.fillStyle = pal.ink; roundRect(ctx, lx - lw / 2, cy + s * .42, lw, lh, lh / 2); ctx.fill();
+    ctx.fillStyle = inkOn(pal.ink, [pal.bg, pal.p, pal.s, pal.a]); ctx.fillText(label, lx, cy + s * .42 + lh / 2 + 1);
   } else if (id === 'ballot') {
     const bw = s, bh = s * .72, bx = x - bw / 2, by = y - bh / 2 + s * .15;
     const cyc = ((t - L.delay) % 2.2) / 2.2, slide = cyc < .6 ? ease.inOutCubic(cyc / .6) : 1;
@@ -813,7 +839,14 @@ function renderFrame(ctx, sc, t, opts = {}) {
   const pal = paletteFor(sc), content = contentFor(sc), lay = layout();
   const boxes = {};
   ctx.save();
-  drawBackground(ctx, pal, t, sc);
+  const keepOut = [];
+  if (content) for (const id of ORDER) {
+    if (!lay[id].visible) continue;
+    ctx.save(); const b = drawLayer(ctx, id, lay[id], pal, t, sc, content, { ...opts, measure: true }); ctx.restore();
+    if (b) keepOut.push(b);
+  }
+  if (state.template === 'map' || (lay.campus.visible && lay.pin.visible)) keepOut.push({ x: lay.campus.x * W, y: Math.min(lay.campus.y, lay.pin.y) * H - 200, w: (lay.pin.x - lay.campus.x) * W, h: 260 });
+  drawBackground(ctx, pal, t, sc, keepOut);
   if (!content) {
     ctx.fillStyle = pal.ink; ctx.font = '700 40px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('No early voting site found for ' + sc.county + ' County', W / 2, H / 2);
@@ -838,6 +871,7 @@ function renderFrame(ctx, sc, t, opts = {}) {
 const adCanvas = $('#ad'), adCtx = adCanvas.getContext('2d');
 const ovCanvas = $('#overlay'), ovCtx = ovCanvas.getContext('2d');
 let playing = true, t = 0, lastNow = performance.now(), boxes = {}, selected = 'headline', recording = false;
+window.evDebug = { boxes: () => boxes }; // read-only hook for layout checks
 
 function drawOverlay() {
   ovCtx.clearRect(0, 0, W, H);
