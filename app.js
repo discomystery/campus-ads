@@ -165,7 +165,7 @@ const LAYERS = [
   { id: 'hours', label: 'Hours', kind: 'text', font: 'body', weight: 700, upper: true, lh: 1.3 },
   { id: 'cta', label: 'Call to action', kind: 'text', font: 'body', weight: 800, lh: 1.15 },
   { id: 'footer', label: 'Footer', kind: 'text', font: 'body', weight: 600, lh: 1.25 },
-  { id: 'countdown', label: 'Countdown sticker', kind: 'text', font: 'display', upper: true, lh: .9, fit: true },
+  { id: 'countdown', label: 'Sticker', kind: 'text', font: 'display', upper: true, lh: .9, fit: true },
   { id: 'tap', label: 'Tap prompt', kind: 'text', font: 'display', upper: true, lh: .95 },
 ];
 const LAYER = Object.fromEntries(LAYERS.map(l => [l.id, l]));
@@ -180,7 +180,7 @@ const DEFAULT_TEXTS = {
   hours: '{hours}',
   cta: 'Not registered? Register + vote the same day.',
   footer: 'Bring a photo ID (many NC student IDs count) · ncsbe.gov',
-  countdown: '{countdown}',
+  countdown: 'Skip\nthe\nlines!',
   tap: 'Tap to find your spot',
 };
 const TOKENS = [
@@ -188,7 +188,7 @@ const TOKENS = [
   ['{site}', 'Site name'], ['{street}', 'Street address'], ['{city}', 'City'], ['{county}', 'County'],
   ['{proximity}', '"On campus" or distance + travel time'], ['{miles}', 'Distance in miles'], ['{travel}', '"~6 min walk"'],
   ['{span}', 'Date range, e.g. OCT 15–31'], ['{start}', 'First day'], ['{end}', 'Last day'],
-  ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left sticker text'],
+  ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left text (changes daily)'],
 ];
 
 const TEMPLATES = {
@@ -311,7 +311,7 @@ function freshState() {
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
-const LAYOUT_VERSION = 5;
+const LAYOUT_VERSION = 6;
 // Positions whose defaults moved after v3: [version, layout key, layer, prop, old default]. A saved value still
 // equal to the old default is dropped on load so the new default applies; hand-placed values are kept.
 const LAYOUT_CHANGES = [
@@ -329,19 +329,17 @@ const OLD_DEFAULT_TEXTS = {
   headline: ['Early\nvoting is\nopen!'],
   footer: ['Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov'],
   tap: ['Tap to find your\nvoting spot →', 'Tap to find\nyour spot'],
+  countdown: ['{countdown}'],
 };
 function merge(fresh, saved) {
   const from = saved.layoutVersion || 1;
-  if (from >= 3 && from < LAYOUT_VERSION) {
-    saved = { ...saved, layoutVersion: LAYOUT_VERSION, layouts: structuredClone(saved.layouts || {}) };
-    for (const [ver, key, id, prop, old] of LAYOUT_CHANGES) {
+  if (from < LAYOUT_VERSION) {
+    saved = { ...saved, layoutVersion: LAYOUT_VERSION, texts: { ...(saved.texts || {}) }, layouts: structuredClone(saved.layouts || {}) };
+    if (from < 3) delete saved.layouts;
+    else for (const [ver, key, id, prop, old] of LAYOUT_CHANGES) {
       const L = (saved.layouts[key] || {})[id];
       if (ver > from && L && L[prop] === old) delete L[prop];
     }
-  }
-  if ((saved.layoutVersion || 1) < LAYOUT_VERSION) {
-    saved = { ...saved, layoutVersion: LAYOUT_VERSION, texts: { ...(saved.texts || {}) } };
-    delete saved.layouts;
     for (const [k, olds] of Object.entries(OLD_DEFAULT_TEXTS)) if (olds.includes(saved.texts[k])) delete saved.texts[k];
   }
   const s = { ...fresh, ...saved };
