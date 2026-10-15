@@ -181,7 +181,7 @@ const DEFAULT_TEXTS = {
   cta: 'Not registered? Register + vote the same day.',
   footer: 'Bring a photo ID (many NC student IDs count) · ncsbe.gov',
   countdown: '{countdown}',
-  tap: 'Tap to find\nyour spot',
+  tap: 'Tap to find your spot',
 };
 const TOKENS = [
   ['{school}', 'Full school name'], ['{short}', 'Short name'], ['{mascot}', 'Mascot'],
@@ -211,7 +211,7 @@ const base = {
   cta:       { x: .07, y: .838, w: .86, size: 40, align: 'left', style: 'pill', color: 'pop', fitMin: .8, anim: 'up', delay: 1.9, idle: 'pulse' },
   footer:    { x: .07, y: .9, w: .86, size: 29, align: 'left', style: 'plain', fitMin: .85, anim: 'fade', delay: 2.1 },
   countdown: { x: .82, y: .345, w: .26, size: 56, align: 'center', style: 'sticker', rot: 10, anim: 'pop', delay: 1.6, idle: 'wiggle' },
-  tap:       { x: .07, y: .545, w: .86, size: 130, align: 'left', style: 'card', icon: 'arrow', rot: -1.5, visible: false, anim: 'slam', delay: 1.1, idle: 'pulse' },
+  tap:       { x: .07, y: .69,  w: .86, size: 84, align: 'left', style: 'pill', color: 'pop', icon: 'arrow', fitMin: .7, visible: false, anim: 'pop', delay: 1.4, idle: 'pulse' },
 };
 const layerDefaults = { visible: true, w: .86, size: 40, align: 'left', style: 'plain', rot: 0, color: 'auto', icon: 'none', anim: 'fade', delay: 0, idle: 'none' };
 const TEMPLATE_LAYOUT = {
@@ -258,15 +258,15 @@ const TEMPLATE_LAYOUT = {
 };
 // "Call to action" version: no site, address, hours, distance or ID line, just a big tap prompt
 const VARIANTS = { full: 'Full details', cta: 'Call to action' };
-const CTA_HIDE = { site: { visible: false }, address: { visible: false }, distance: { visible: false }, hours: { visible: false }, footer: { visible: false } };
+const CTA_HIDE = { address: { visible: false }, distance: { visible: false }, hours: { visible: false }, footer: { visible: false } };
 const CTA_LAYOUT = {
-  ticker: { tap: { visible: true }, cta: { y: .825, size: 46, delay: 1.6 }, countdown: { delay: 1.4 } },
-  sticker: { tap: { visible: true, y: .58, rot: -2 }, cta: { y: .865, size: 46, delay: 1.6 }, countdown: { delay: 1.4 } },
+  ticker: { site: { size: 96, fitMin: .5 }, tap: { visible: true, y: .69 }, cta: { y: .82, size: 44, delay: 1.7 } },
+  sticker: { site: { size: 92, fitMin: .5 }, tap: { visible: true, y: .725 }, cta: { y: .855, size: 44, delay: 1.7 } },
   map: {
-    campus: { y: .37 }, pin: { y: .39 }, dates: { y: .445 },
-    tap: { visible: true, y: .56 }, cta: { y: .85, size: 46, delay: 1.6 },
+    campus: { y: .37 }, pin: { y: .39 }, dates: { y: .445 }, site: { y: .54, size: 88, fitMin: .5 },
+    tap: { visible: true, y: .69 }, cta: { y: .825, size: 44, delay: 1.7 },
   },
-  rays: { tap: { visible: true, x: .5, y: .535, align: 'center', rot: 0 }, cta: { y: .825, size: 46, delay: 1.6 }, countdown: { delay: 1.4 } },
+  rays: { site: { size: 92, fitMin: .5 }, tap: { visible: true, x: .5, y: .675, align: 'center' }, cta: { y: .81, size: 44, delay: 1.7 } },
 };
 const LAYOUT_KEYS = Object.keys(TEMPLATES).flatMap(t => [t, t + ':cta']);
 const layoutKey = () => state.template + (state.variant === 'cta' ? ':cta' : '');
@@ -311,10 +311,11 @@ function freshState() {
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
-const LAYOUT_VERSION = 2;
+const LAYOUT_VERSION = 3;
 const OLD_DEFAULT_TEXTS = {
   headline: ['Early\nvoting is\nopen!'],
   footer: ['Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov'],
+  tap: ['Tap to find your\nvoting spot →', 'Tap to find\nyour spot'],
 };
 function merge(fresh, saved) {
   if ((saved.layoutVersion || 1) < LAYOUT_VERSION) {
@@ -677,7 +678,7 @@ function drawLayer(ctx, id, L, pal, t, sc, content, opts) {
   const baseOff = (mH.actualBoundingBoxAscent - (def.upper ? 0 : mG.actualBoundingBoxDescent * .5)) / 2;
   const iconCol = style === 'plain' || style === 'outline' ? (contrast(pick || pal.pop, pal.bg) >= 2.5 ? (pick || pal.pop) : pal.ink) : textCol;
   if (hasIcon) {
-    const ix = (iconEnd ? x0 + bw - padX - iconW / 2 : x0 + padX + iconW / 2) - (iconEnd ? 0 : size * .08);
+    const ix = (iconEnd ? x0 + bw - padX - iconW / 2 : x0 + padX + iconW / 2) + (iconEnd ? size * .1 : -size * .08);
     icon(ctx, L.icon, ix, y0 + padY + (L.icon === 'arrow' ? lines.length * lh / 2 : lh / 2), size * 1.0, iconCol);
   }
   let shown = 0;
