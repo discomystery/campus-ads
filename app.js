@@ -324,7 +324,7 @@ const TEMPLATE_LAYOUT = {
 // "Call to action" version: no site, address, hours, distance or ID line, just a big tap prompt
 const VARIANTS = { full: 'Full details', cta: 'Call to action' };
 const CTA_HIDE = { address: { visible: false }, distance: { visible: false }, hours: { visible: false }, footer: { visible: false } };
-const CTA_ID = (extra = {}) => ({ visible: true, text: '{idline}', icon: 'check', size: 31, fitMin: .8, delay: 2.3, ...extra });
+const CTA_ID = (extra = {}) => ({ visible: true, text: '{photoid}', icon: 'check', size: 31, fitMin: .8, delay: 2.3, ...extra });
 const CTA_LAYOUT = {
   ticker: { footer: CTA_ID({ y: .893 }),  site: { size: 96, fitMin: .5 }, tap: { visible: true, y: .69 }, cta: { y: .82, size: 44, delay: 1.7 } },
   sticker: { footer: CTA_ID({ y: .925 }),  site: { size: 92, fitMin: .5 }, tap: { visible: true, y: .725 }, cta: { y: .855, size: 44, delay: 1.7 } },
@@ -400,7 +400,7 @@ function freshState() {
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
-const LAYOUT_VERSION = 8;
+const LAYOUT_VERSION = 9;
 // Positions whose defaults moved after v3: [version, layout key, layer, prop, old default]. A saved value still
 // equal to the old default is dropped on load so the new default applies; hand-placed values are kept.
 const LAYOUT_CHANGES = [
@@ -413,6 +413,7 @@ const LAYOUT_CHANGES = [
   [5, 'map', 'campus', 'y', .425], [5, 'map', 'pin', 'y', .445], [5, 'map', 'dates', 'y', .485], [5, 'map', 'site', 'y', .575],
   [5, 'map', 'site', 'size', 76], [5, 'map', 'address', 'y', .688], [5, 'map', 'hours', 'y', .733],
   ...Object.keys(TEMPLATES).map(k => [8, k + ':cta', 'footer', 'visible', false]), // CTA versions now show the student-ID line
+  ...Object.keys(TEMPLATES).map(k => [9, k + ':cta', 'footer', 'text', '{idline}']), // ...or the photo-ID reminder when not approved
   [5, 'map:cta', 'campus', 'y', .37], [5, 'map:cta', 'pin', 'y', .39], [5, 'map:cta', 'dates', 'y', .445], [5, 'map:cta', 'site', 'y', .54],
 ];
 const OLD_DEFAULT_TEXTS = {
