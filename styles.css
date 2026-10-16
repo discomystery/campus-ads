@@ -183,3 +183,4 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .bx-grid td { padding: 3px 4px; border-top: 1px solid var(--line); }
 .bx-grid td:first-child { font-weight: 700; }
 .bx-list input, .bx-grid input { width: auto; margin: 0; }
+.id-sel { font-size: 12px; padding: 3px 4px; width: auto; }

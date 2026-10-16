@@ -1145,6 +1145,7 @@ window.evDebug = { boxes: () => boxes }; // read-only hook for layout checks
 function drawOverlay() {
   ovCtx.clearRect(0, 0, W, H);
   if (recording) return;
+  drawHiddenIdHint();
   if (state.guides) {
     ovCtx.save(); ovCtx.strokeStyle = 'rgba(0,255,200,.7)'; ovCtx.setLineDash([10, 8]); ovCtx.lineWidth = 2;
     const m = W * .07; ovCtx.strokeRect(m, m, W - 2 * m, H - 2 * m);
@@ -1163,6 +1164,25 @@ function drawOverlay() {
   }
 }
 let exporting = false; // batch/fast export in progress: skip the live preview so it doesn't compete
+// editor-only hint where the student-ID line would be, when it is blank because the school's ID isn't approved
+function drawHiddenIdHint() {
+  const sc = school(), lay = layout();
+  if (idApproved(sc)) return;
+  for (const id of ORDER) {
+    const L = lay[id];
+    if (!L.visible || LAYER[id].kind !== 'text' || !inTemplate(id) || boxes[id] || t < L.delay) continue;
+    if (!/\{idline\}/.test(L.text != null ? L.text : state.texts[id] || '')) continue;
+    const prev = L.after && boxes[L.after], y = prev ? prev.y + prev.h + (L.gap ?? .014) * H : L.y * H, w = W * .8, h = 64;
+    const x = L.align === 'center' ? L.x * W - w / 2 : L.align === 'right' ? L.x * W - w : L.x * W;
+    ovCtx.save(); ovCtx.setLineDash([10, 7]); ovCtx.lineWidth = 3; ovCtx.strokeStyle = 'rgba(255,210,63,.9)';
+    ovCtx.fillStyle = 'rgba(20,20,28,.78)'; roundRect(ovCtx, x, y, w, h, 12); ovCtx.fill(); ovCtx.stroke();
+    ovCtx.fillStyle = '#ffd23f'; ovCtx.font = '700 21px system-ui, sans-serif'; ovCtx.textBaseline = 'middle';
+    ovCtx.fillText(`ID line hidden: ${sc.short}'s student ID isn't confirmed as approved.`, x + 16, y + 21);
+    ovCtx.fillStyle = '#fff'; ovCtx.font = '500 18px system-ui, sans-serif';
+    ovCtx.fillText('To show it: Content tab → "Student ID for voting" → Approved. (Not in exports.)', x + 16, y + 45);
+    ovCtx.restore();
+  }
+}
 function tick(now) {
   const dt = Math.min(.1, (now - lastNow) / 1000); lastNow = now;
   if (exporting) { requestAnimationFrame(tick); return; }
@@ -1422,6 +1442,11 @@ function renderGrid() {
     grid.appendChild(card);
   }
 }
+function idSelectHTML(s) {
+  const o = (state.overrides[s.id] || {}).idOk, v = o == null ? 'default' : o ? 'yes' : 'no';
+  return `<select data-idsel="${s.id}" class="id-sel">${[['default', `List: ${s.idOk ? 'approved' : 'not confirmed'}`], ['yes', 'Approved'], ['no', 'Not approved']]
+    .map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+}
 function renderTable() {
   const rows = visibleSchools().map(s => {
     const c = chosen(s); if (!c) return `<tr><td>${esc(s.name)}</td><td colspan="6">No site found</td></tr>`;
@@ -1433,9 +1458,14 @@ function renderTable() {
     return `<tr><td><b>${esc(s.short)}</b><br><span class="muted">${esc(s.county)} Co.</span></td><td>${c.onCampus ? '★ ' : ''}${esc(siteName(s, c.site))}${c.site.id === s.pdfSite ? ' <span class="muted">(school flyer' + (s.pdfLabel !== c.site.nice ? '; official: ' + esc(c.site.nice) : '') + ')</span>' : ''}<br><span class="muted">${esc(titleStreet(c.site.street))}, ${esc(c.site.city)} ${c.site.zip}</span></td>
       <td class="num">${c.d.toFixed(2)} mi</td><td class="num">${fmtDay(sch.first)}–${fmtDay(sch.last)}</td><td>${sch.compact.map(esc).join('<br>')}</td>
       <td>${s.colors.map(x => `<span class="swatch" style="display:inline-grid;width:18px;height:18px;vertical-align:middle;background:${x}"></span>`).join(' ')}</td>
-      <td>${idApproved(s) ? '✓ ' + esc((state.overrides[s.id] || {}).idCard || s.idCard || 'student ID') : '<span class="muted">not confirmed: ads skip student IDs</span>'}</td>
+      <td>${idSelectHTML(s)}${idApproved(s) ? '<br><span class="muted">✓ ' + esc((state.overrides[s.id] || {}).idCard || s.idCard || s.short + ' student ID') + '</span>' : '<br><span class="muted">ads skip student IDs</span>'}</td>
       <td class="warn">${flags.length ? '⚠ ' + flags.join('; ') : ''}</td></tr>`;
   }).join('');
+  setTimeout(() => $$('[data-idsel]').forEach(sel => sel.onchange = () => {
+    const o = (state.overrides[sel.dataset.idsel] = state.overrides[sel.dataset.idsel] || {});
+    if (sel.value === 'default') delete o.idOk; else o.idOk = sel.value === 'yes';
+    save(); renderTable(); if (sel.dataset.idsel === state.schoolId) renderContentTab();
+  }));
   $('#dataTable').innerHTML = `<thead><tr><th>School</th><th>Early voting site</th><th>Distance</th><th>Dates</th><th>Hours</th><th>Colors</th><th>Student ID for voting</th><th>Check</th></tr></thead><tbody>${rows}</tbody>`;
 }
 function setView(v) {
