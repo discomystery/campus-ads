@@ -1467,19 +1467,23 @@ const FAST_CODECS = [
   { mux: 'avc', codec: 'avc1.640028' }, { mux: 'avc', codec: 'avc1.4d0028' }, { mux: 'avc', codec: 'avc1.42e028' },
   { mux: 'vp9', codec: 'vp09.00.40.08' },
 ];
-const fastCodec = (async () => {
-  if (!window.VideoEncoder || !window.Mp4Muxer) return null;
+// every encoder config this browser says it supports, best first; one that fails in practice is dropped
+const fastCodecs = (async () => {
+  const ok = [];
+  if (!window.VideoEncoder || !window.Mp4Muxer) return ok;
   for (const c of FAST_CODECS) {
     const config = { codec: c.codec, width: W, height: H, bitrate: 10e6, framerate: FPS, ...(c.mux === 'avc' ? { avc: { format: 'avc' } } : {}) };
-    try { if ((await VideoEncoder.isConfigSupported(config)).supported) return { ...c, config }; } catch {}
+    try { if ((await VideoEncoder.isConfigSupported(config)).supported) ok.push({ ...c, config }); } catch {}
   }
-  return null;
+  return ok;
 })();
+const fastCodec = fastCodecs.then(l => l[0] || null);
+let lastVideoNote = '';
 // yield without setTimeout, which background tabs throttle
 const yieldNow = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
 // prep() runs before every frame so several encodes can interleave (each sets its own school/design)
-async function encodeVideo(sc, onFrame, prep) {
-  const fc = await fastCodec, n = Math.round(state.duration * FPS);
+async function encodeVideo(sc, onFrame, prep, fc) {
+  const n = Math.round(state.duration * FPS);
   const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: fc.mux, width: W, height: H, frameRate: FPS }, fastStart: 'in-memory' });
   let failure = null;
   const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { failure = e; } });
@@ -1496,25 +1500,47 @@ async function encodeVideo(sc, onFrame, prep) {
   await enc.flush(); enc.close();
   if (failure) throw failure;
   muxer.finalize();
-  return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+  const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+  if (blob.size < 20000) throw new Error(`the ${fc.codec} encoder produced an empty file`);
+  return blob;
+}
+// try each working encoder in turn; drop one that fails so later videos skip it
+async function encodeVideoSafe(sc, onFrame, prep) {
+  const list = await fastCodecs;
+  while (list.length) {
+    try { return await encodeVideo(sc, onFrame, prep, list[0]); }
+    catch (e) {
+      console.warn('Video encoder failed, trying the next one:', list[0].codec, e);
+      lastVideoNote = `${list[0].codec} failed (${e.message || e}); `;
+      list.shift(); fastReady = list[0] || null; updateFormatNote();
+    }
+  }
+  throw new Error(lastVideoNote + 'no video encoder worked in this browser.');
 }
 // one video for a school in the current design: fast path if available, else real-time recording
 async function makeVideo(sc, onFrame) {
-  if (await fastCodec) return encodeVideo(sc, onFrame);
-  return recordCurrent();
+  if ((await fastCodecs).length) { try { return await encodeVideoSafe(sc, onFrame); } catch (e) { if (!MIME) throw e; } }
+  exporting = false; // real-time recording needs the live preview running
+  return recordCurrent(); // last resort
 }
-fastCodec.then(fc => { if (fc) $('#formatNote').textContent = fc.mux === 'avc'
-  ? 'Exports MP4 (H.264) at 1080×1350, ready for Instagram, rendered faster than real time.'
-  : 'Exports MP4 (VP9) faster than real time. This browser has no H.264 encoder; if Instagram rejects the file, export in Chrome.'; bxSummary(); });
+function updateFormatNote() {
+  const fc = fastReady;
+  if (fc) $('#formatNote').textContent = fc.mux === 'avc'
+    ? 'Exports MP4 (H.264) at 1080×1350, ready for Instagram, rendered faster than real time.'
+    : 'Exports MP4 (VP9) faster than real time. This browser has no working H.264 encoder; if Instagram rejects the file, export in Chrome.';
+  else if (MIME) $('#formatNote').textContent = 'Records video in real time (keep this tab in front).';
+  if (lastVideoNote) $('#formatNote').textContent += ' Note: ' + lastVideoNote;
+}
+fastCodec.then(fc => { fastReady = fc; updateFormatNote(); bxSummary(); });
 $('#formatNote').textContent = !MIME ? 'This browser cannot record video. Try Chrome.'
   : MIME.includes('avc1') ? 'Records MP4 (H.264) in real time at 1080×1350, ready for Instagram.'
   : MIME.startsWith('video/mp4') ? 'Records MP4, but this browser may not use H.264. If Instagram rejects the file, record in Chrome or convert it (e.g. HandBrake).'
   : 'This browser records WebM. Instagram needs MP4: use Chrome or Safari, or convert the file (e.g. HandBrake).';
 function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40); }
-function fileBase(sc) { const c = chosen(sc); return `early-vote_${sc.id}_${state.variant === 'cta' ? 'cta' : c ? slug(c.site.nice) : 'site'}`; }
+function fileBase(sc) { return `early-vote_${sc.id}_${designSlug(layoutKey())}`; }
 function download(blob, name) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 120000);
 }
 function recordCurrent() {
   return new Promise((resolve, reject) => {
@@ -1539,8 +1565,8 @@ $('#exportVideo').onclick = async () => {
   try {
     const fast = await fastCodec; if (fast) { exporting = true; progress(0, 1, 'Rendering video…'); }
     const blob = await makeVideo(school(), f => progress(f, 1, `Rendering video… ${Math.round(f * 100)}%`));
-    download(blob, `${fileBase(school())}.${ext()}`); if (fast) progress(1, 1, 'Done ✓');
-  } catch (e) { alert(e.message); }
+    download(blob, `${fileBase(school())}.${ext()}`); progress(1, 1, 'Done ✓');
+  } catch (e) { progress(0, 1, 'Video export failed: ' + (e.message || e)); alert('Video export failed: ' + (e.message || e)); }
   exporting = false;
   setBusy(false);
 };
@@ -1635,7 +1661,7 @@ $('#bxStart').onclick = async () => {
           while (next < jobs.length && !bxCancel) {
             const k = next++, job = jobs[k], [jt, jv] = job.d.split(':');
             const prep = () => { state.schoolId = job.sc.id; state.template = jt; state.variant = jv ? 'cta' : 'full'; };
-            const blob = await encodeVideo(job.sc, f => {
+            const blob = await encodeVideoSafe(job.sc, f => {
               done[k] = f; const total = done.reduce((a, b) => a + b, 0);
               progress(total, jobs.length, `Rendering ${finished}/${jobs.length} done · ${job.sc.short} · ${designLabel(job.d)}`);
             }, prep);
@@ -1660,7 +1686,7 @@ $('#bxStart').onclick = async () => {
     }
     const took = (performance.now() - started) / 1000;
     progress(1, 1, `${bxCancel ? 'Stopped' : 'Done ✓'} · ${files.length || jobs.length} files in ${took < 90 ? Math.round(took) + ' sec' : Math.round(took / 60) + ' min'}`);
-  } catch (e) { alert(e.message); }
+  } catch (e) { progress(0, 1, 'Export failed: ' + (e.message || e)); alert('Export failed: ' + (e.message || e)); }
   exporting = false;
   Object.assign(state, keep); t = 0;
   setBusy(false); $('#bxCancel').hidden = true;
