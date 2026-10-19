@@ -125,7 +125,7 @@ function scheduleInfo(site) {
     compact.push(`${DOW3[g.dow]} ${label} ${fmtTime(g.time)}${isLast ? ' (last\u00a0day)' : ''}`);
   });
   const full = entries.map(e => `${fmtRange(e)} · ${fmtTime(e.time)}`);
-  return { first, last, compact, full };
+  return { first, last, compact, full, sunday: all.some(d => d.getDay() === 0) };
 }
 function titleStreet(s) {
   return s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase())
@@ -182,7 +182,7 @@ const DEFAULT_TEXTS = {
   site: '{site}',
   address: '{street}, {city}',
   distance: '{proximity}',
-  hours: '{hours}',
+  hours: '{hours}{sundaynote}',
   cta: 'Not registered? Register + vote the same day.',
   footer: '{photoid} · ncsbe.gov',
   countdown: 'Skip\nthe\nlines!',
@@ -201,7 +201,7 @@ const TOKENS = [
   ['{site}', 'Site name'], ['{street}', 'Street address'], ['{city}', 'City'], ['{county}', 'County'],
   ['{proximity}', '"On campus" or distance + travel time'], ['{miles}', 'Distance in miles'], ['{travel}', '"~6 min walk"'],
   ['{span}', 'Date range, e.g. OCT 15–31'], ['{start}', 'First day'], ['{end}', 'Last day'],
-  ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left text (changes daily)'], ['{photoid}', 'Student-ID line if the school’s ID is approved, otherwise a photo-ID reminder'], ['{idline}', 'Student-ID line, blank if the school’s ID isn’t approved'],
+  ['{hours}', 'Hours (compact/full)'], ['{days}', 'Days left'], ['{countdown}', 'Days-left text (changes daily)'], ['{photoid}', 'Student-ID line if the school’s ID is approved, otherwise a photo-ID reminder'], ['{idline}', 'Student-ID line, blank if the school’s ID isn’t approved'], ['{nosunday}', '“No Sunday voting at this site” (blank if the site has Sunday hours)'], ['{sundaynote}', 'Same, on its own new line'],
 ];
 
 const TEMPLATES = {
@@ -324,9 +324,9 @@ const TEMPLATE_LAYOUT = {
 // "Call to action" version: no site, address, hours, distance or ID line, just a big tap prompt
 const VARIANTS = { full: 'Full details', cta: 'Call to action' };
 const CTA_HIDE = { address: { visible: false }, distance: { visible: false }, hours: { visible: false }, footer: { visible: false } };
-const CTA_ID = (extra = {}) => ({ visible: true, text: '{photoid}', icon: 'check', size: 31, fitMin: .8, delay: 2.3, ...extra });
+const CTA_ID = (extra = {}) => ({ visible: true, text: '{photoid}{sundaynote}', icon: 'check', size: 31, fitMin: .8, delay: 2.3, ...extra });
 const CTA_LAYOUT = {
-  ticker: { footer: CTA_ID({ y: .893 }),  site: { size: 96, fitMin: .5 }, tap: { visible: true, y: .69 }, cta: { y: .82, size: 44, delay: 1.7 } },
+  ticker: { footer: CTA_ID({ y: .866 }),  site: { size: 96, fitMin: .5 }, tap: { visible: true, y: .672 }, cta: { y: .8, size: 44, delay: 1.7 } },
   sticker: { footer: CTA_ID({ y: .925 }),  site: { size: 92, fitMin: .5 }, tap: { visible: true, y: .725 }, cta: { y: .855, size: 44, delay: 1.7 } },
   map: {
     campus: { y: .385 }, pin: { y: .405 }, dates: { y: .455 }, site: { y: .55, size: 88, fitMin: .5 },
@@ -336,14 +336,14 @@ const CTA_LAYOUT = {
   chat: {
     ...Object.fromEntries([1, 2, 3].map(n => ['chat' + n, { size: 54, visible: true, gap: .022, w: .8 }])), chat4: { visible: false },
     chat1: { size: 54, visible: true, y: .335, w: .8 },
-    tap: { visible: true, after: 'chat3', gap: .04, x: .5, align: 'center', size: 88, delay: 3.6 },
-    cta: { after: 'tap', gap: .022, x: .5, align: 'center', size: 44, delay: 3.9 },
-    footer: CTA_ID({ after: 'cta', gap: .014, x: .5, align: 'center', delay: 4.2 }),
+    tap: { visible: true, after: 'chat3', gap: .03, x: .5, align: 'center', size: 88, delay: 3.6 },
+    cta: { after: 'tap', gap: .016, x: .5, align: 'center', size: 44, delay: 3.9 },
+    footer: CTA_ID({ after: 'cta', gap: .01, x: .5, align: 'center', delay: 4.2 }),
   },
   todo: {
-    todo0: { size: 72 }, todo1: { size: 84 }, todo2: { size: 84 }, todo3: { size: 84 },
-    tap: { visible: true, after: 'todo3', gap: .075, x: .12, w: .82, size: 92, delay: 3.8 },
-    cta: { after: 'tap', gap: .03, size: 44, delay: 4.1 },
+    todo0: { size: 72 }, todo1: { size: 80 }, todo2: { size: 80 }, todo3: { size: 80 },
+    tap: { visible: true, after: 'todo3', gap: .06, x: .12, w: .82, size: 92, delay: 3.8 },
+    cta: { after: 'tap', gap: .022, size: 44, delay: 4.1 },
     footer: CTA_ID({ after: 'cta', gap: .018, x: .12, delay: 4.4 }),
   },
   ticket: {
@@ -400,7 +400,7 @@ function freshState() {
 }
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 // bump when default layouts change: older saved layouts (and untouched old default texts) give way to the new defaults
-const LAYOUT_VERSION = 9;
+const LAYOUT_VERSION = 10;
 // Positions whose defaults moved after v3: [version, layout key, layer, prop, old default]. A saved value still
 // equal to the old default is dropped on load so the new default applies; hand-placed values are kept.
 const LAYOUT_CHANGES = [
@@ -414,6 +414,11 @@ const LAYOUT_CHANGES = [
   [5, 'map', 'site', 'size', 76], [5, 'map', 'address', 'y', .688], [5, 'map', 'hours', 'y', .733],
   ...Object.keys(TEMPLATES).map(k => [8, k + ':cta', 'footer', 'visible', false]), // CTA versions now show the student-ID line
   ...Object.keys(TEMPLATES).map(k => [9, k + ':cta', 'footer', 'text', '{idline}']), // ...or the photo-ID reminder when not approved
+  ...Object.keys(TEMPLATES).flatMap(k => [[10, k + ':cta', 'footer', 'text', '{idline}'], [10, k + ':cta', 'footer', 'text', '{photoid}']]), // + no-Sunday note
+  [10, 'ticker:cta', 'footer', 'y', .893], [10, 'ticker:cta', 'tap', 'y', .69], [10, 'ticker:cta', 'cta', 'y', .82],
+  [10, 'chat:cta', 'tap', 'gap', .04], [10, 'chat:cta', 'cta', 'gap', .022], [10, 'chat:cta', 'footer', 'gap', .014],
+  [10, 'todo:cta', 'todo1', 'size', 84], [10, 'todo:cta', 'todo2', 'size', 84], [10, 'todo:cta', 'todo3', 'size', 84],
+  [10, 'todo:cta', 'tap', 'gap', .075], [10, 'todo:cta', 'cta', 'gap', .03],
   [5, 'map:cta', 'campus', 'y', .37], [5, 'map:cta', 'pin', 'y', .39], [5, 'map:cta', 'dates', 'y', .445], [5, 'map:cta', 'site', 'y', .54],
 ];
 const OLD_DEFAULT_TEXTS = {
@@ -421,6 +426,7 @@ const OLD_DEFAULT_TEXTS = {
   footer: ['Bring a photo ID (many NC student IDs count). Sites & hours: ncsbe.gov', 'Bring a photo ID (many NC student IDs count) · ncsbe.gov'],
   tap: ['Tap to find your\nvoting spot →', 'Tap to find\nyour spot'],
   countdown: ['{countdown}'],
+  hours: ['{hours}'],
 };
 function merge(fresh, saved) {
   const from = saved.layoutVersion || 1;
@@ -505,6 +511,8 @@ function contentFor(sc) {
       start: fmtDay(sch.first), end: fmtDay(sch.last),
       hours: (state.hoursMode === 'full' ? sch.full : sch.compact).join('\n'),
       days: String(Math.max(days, 0)), countdown, photoid, idline: idOk ? photoid : '',
+      // disclaimer for sites with no Sunday hours (adds its own line break; blank otherwise)
+      nosunday: sch.sunday ? '' : 'No Sunday voting at this site', sundaynote: sch.sunday ? '' : '\nNo Sunday voting at this site',
     },
     site, c, sch,
   };
@@ -1456,6 +1464,7 @@ function renderTable() {
     if (!c.onCampus && c.d > 3) flags.push('>3 mi');
     if (c.onCampus && c.d >= 1.2) flags.push('campus-run site, but >1.2 mi from the campus point');
     const sch = scheduleInfo(c.site);
+    if (!sch.sunday) flags.push('no Sunday voting (ads say so)');
     return `<tr><td><b>${esc(s.short)}</b><br><span class="muted">${esc(s.county)} Co.</span></td><td>${c.onCampus ? '★ ' : ''}${esc(siteName(s, c.site))}${c.site.id === s.pdfSite ? ' <span class="muted">(school flyer' + (s.pdfLabel !== c.site.nice ? '; official: ' + esc(c.site.nice) : '') + ')</span>' : ''}<br><span class="muted">${esc(titleStreet(c.site.street))}, ${esc(c.site.city)} ${c.site.zip}</span></td>
       <td class="num">${c.d.toFixed(2)} mi</td><td class="num">${fmtDay(sch.first)}–${fmtDay(sch.last)}</td><td>${sch.compact.map(esc).join('<br>')}</td>
       <td>${s.colors.map(x => `<span class="swatch" style="display:inline-grid;width:18px;height:18px;vertical-align:middle;background:${x}"></span>`).join(' ')}</td>
