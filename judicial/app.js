@@ -50,10 +50,13 @@ const DEFAULT_MESSAGES = [
   msg('Every vote counts', '*Statewide* court races here have been decided by *just a few hundred votes*. Make one of them *yours*.', 'Make *your vote* count.', 'Vote by 7:30\u00a0PM tonight'),
 ];
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+// the "Mix" pattern: alternate lineup with stripes, using quadrants where the ad is roughly square
+const squarish = p => p.h / p.w >= .75 && p.h / p.w <= 1.35;
+const mixLayout = (p, i) => i % 2 ? (squarish(p) ? 'quads' : 'stripes') : 'lineup';
 function freshState() {
   const sizes = {};
   // spread the messages across the sizes so neighbors differ
-  PRESETS.forEach((p, i) => { sizes[p.key] = { endorser: !!p.big, disclaimer: true, batch: p.key !== 'custom', message: i % DEFAULT_MESSAGES.length, layout: i % 2 ? 'stripes' : 'lineup' }; });
+  PRESETS.forEach((p, i) => { sizes[p.key] = { endorser: !!p.big, disclaimer: true, batch: p.key !== 'custom', message: i % DEFAULT_MESSAGES.length, layout: mixLayout(p, i) }; });
   return {
     size: 'meta45', view: 'single', tab: 'cands',
     messages: DEFAULT_MESSAGES.map(m => ({ ...m })),
@@ -75,6 +78,7 @@ function freshState() {
     colors: { ...DEFAULT_COLORS },
     theme: 'classic', themeAuto: false,
     pattern: 'none', sticker: false, guides: true,
+    quadsTried: true,
     tweaks: {}, // your manual moves and resizes: tweaks[size][layout][element] = { dx, dy, s }
     duration: 8, outro: 'hold', motion: 'pop', pulse: true,
     frame: 'circle', endFrame: 'circle',
@@ -106,6 +110,8 @@ try {
     // the single message from before alternate messages existed becomes message A
     if (!saved.messages && saved.text?.headline) saved.messages = [{ ...DEFAULT_MESSAGES[0], ...saved.text }, ...DEFAULT_MESSAGES.slice(1)];
     state = merge(freshState(), saved);
+    if (!saved.quadsTried) { PRESETS.forEach(p => { if (squarish(p) && state.sizes[p.key]?.layout === 'stripes') state.sizes[p.key].layout = 'quads'; }); }
+    state.quadsTried = true;
     // the first draft of message E made a vaguer claim
     state.messages.forEach(m => { if (m.headline.startsWith('Court races are won by *a few thousand votes*')) Object.assign(m, DEFAULT_MESSAGES[4]); });
   }
@@ -670,7 +676,7 @@ function spread(rows, y0, h, gap) {
    and a white footer with the date and poll hours. On wide sizes the bands
    turn into columns. Returns null when a size is too small for it, and the
    size falls back to the lineup. */
-const LAYOUTS = { lineup: 'Lineup (judges in a row)', stripes: 'Stripes (a band per judge)' };
+const LAYOUTS = { lineup: 'Lineup (judges in a row)', stripes: 'Stripes (a band per judge)', quads: 'Quadrants (2×2 grid)' };
 const layoutOf = P => P.layout ?? state.sizes[P.key]?.layout ?? 'lineup';
 const lum = hex => { const [r, g, b] = rgb(hex).map(v => v / 255); return .2126 * r + .7152 * g + .0722 * b; };
 const inkOn = c => lum(c) > .45 ? state.colors.black : state.colors.white;
@@ -723,6 +729,37 @@ function stripesPlan(P, T) {
     enter(ctx, prog(t0, .45), x + d / 2, y + d * POP - d / 2, [0, d * .4], popBack, () => drawCutout(ctx, i, x, y, d, disc, inkOn(disc), rise));
   } });
 
+  if (layoutOf(P) === 'quads' && H / W >= .45) {
+    // quadrants: header, a 2x2 checkerboard of judges (names toward the outside, photos toward the middle), footer
+    const span = S.b - S.t, hh = span * .2, fh = span * .19, ch = (span - hh - fh) / 2, x0 = S.l, cw = S.r - S.l, qw = W / 2;
+    const ew = endOn && cw >= 260 ? cw * .28 : 0;
+    const hdr = stripeHeader(x0, cw - ew - (ew ? pad * .5 : 0), hh - pad * .3, A, B, P, ew ? 'left' : 'center');
+    // name on the outer ~58% of each cell, photo tucked against the inner edge
+    const cellColor = i => ((i % 2) + (i >> 1)) % 2 ? B : A, tw = qw * .58 - pad;
+    const names = fitNames(tw, ch * .8, C.map((_, i) => inkOn(cellColor(i))), P, 'left');
+    if (!hdr || !names) return null;
+    bands.push({ x: 0, y: 0, w: W, h: S.t + hh + 1, color: A, from: 'top', t0: 0 });
+    put(hdr, S.t + (hh - hdr.h) / 2, t, 'header'); t += hdr.dur * .6;
+    if (ew) { const e = endBlock(S.r - ew, ew, hh * .92, { ...T, disc: B }, inkOn(A), 'stack', P); if (e) put(e, S.t + (hh - e.h) / 2, t + .2, 'endorser'); }
+    C.forEach((c, i) => {
+      const col = i % 2, row = i >> 1, x = col * qw, y = S.t + hh + row * ch, color = cellColor(i), t0 = .35 + i * STRIPE_STEP;
+      bands.push({ x, y, w: qw + (col ? 0 : 1), h: ch + (row ? 0 : 1), color, from: col ? 'right' : 'left', t0 });
+      const nb = names[i], nx = col ? x + qw * .42 : x + pad;
+      put(at(nb, nx), y + (ch - nb.h) / 2, t0 + .25, `name${i}`, nx, tw);
+      if (usePhotos()) {
+        const d = Math.min(ch * .88, qw * .36), px = col ? x + qw * .4 - d : x + qw * .6;
+        const top = y + ch - d * POP - (state.frame === 'none' ? 0 : ch * .04);
+        put(photoBlock(i, px, d, y + ch, color === A ? B : A), top, t0 + .3, `photo${i}`, px, d);
+      }
+      t = t0 + .9;
+    });
+    const fy = S.t + hh + 2 * ch, disc = discOn ? discBlock(x0, cw, clamp(H * .018, 10.5, 22), black, 'center') : null;
+    bands.push({ x: 0, y: fy, w: W, h: H - fy, color: white, from: 'bottom', t0: t - .4 });
+    const fres = fitStack(MC, footItems(true), cw, fh - (disc ? disc.h + pad * .3 : 0) - pad * .4, Math.min(cw * .14, 120));
+    if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, x0, y, 'center', t0) }, fy + pad * .3 + (fh - (disc ? disc.h + pad * .3 : 0) - pad * .3 - fres.total) / 2, t - .2, 'footer', x0, cw);
+    if (disc) put(disc, Math.min(H - pad * .5, S.b) - disc.h, .3, 'disclaimer');
+    return { fam: 'stripes', bg: white, bands, items, sticker: null, m, end: t + (fres ? stackDur(fres) : 0) };
+  }
   if (H / W >= .45) {
     // rows: header, four judge bands, footer
     const span = S.b - S.t, hh = span * .2, fh = span * .19, rh = (span - hh - fh) / 4, x0 = S.l, cw = S.r - S.l;
@@ -795,7 +832,7 @@ function plan(P, T) {
   return L;
 }
 function makePlan(P, T) {
-  if (layoutOf(P) === 'stripes') { const S = stripesPlan(P, T); if (S) return S; }
+  if (layoutOf(P) === 'stripes' || layoutOf(P) === 'quads') { const S = stripesPlan(P, T); if (S) return S; }
   const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {};
   const pad = Math.round(clamp(m * .06, 5, 64));
   const r = P.safe ? { x: W * P.safe.l, y: H * P.safe.t, w: W * (1 - P.safe.l - P.safe.r), h: H * (1 - P.safe.t - P.safe.b) }
@@ -1250,7 +1287,7 @@ function renderLayouts() {
 }
 $('#layoutPick').onchange = e => { state.sizes[state.size].layout = e.target.value; selId = null; save(); renderLayouts(); renderTweakBar(); redraw(); };
 $$('[data-layout-all]').forEach(b => b.onclick = () => {
-  PRESETS.forEach((p, i) => { state.sizes[p.key].layout = b.dataset.layoutAll === 'mix' ? (i % 2 ? 'stripes' : 'lineup') : b.dataset.layoutAll; });
+  PRESETS.forEach((p, i) => { state.sizes[p.key].layout = b.dataset.layoutAll === 'mix' ? mixLayout(p, i) : b.dataset.layoutAll; });
   save(); renderLayouts(); redraw();
 });
 $('#msgPick').onchange = e => { state.sizes[state.size].message = +e.target.value; save(); renderMessages(); redraw(); };
