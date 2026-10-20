@@ -412,6 +412,12 @@ function drawPhoto(ctx, cx, cy, d, ring, ink) {
   const frame = state.endFrame, i = frame === 'none' ? d : d * .9;
   if (frame !== 'none') { ctx.fillStyle = ring; framePath(ctx, frame, cx, cy, d); ctx.fill(); }
   ctx.save();
+  if (frame === 'none' && photoImg) {
+    // no frame: show the whole picture, fit to the box height and standing on its bottom edge
+    const E = state.endorser, s = d * E.zoom / photoImg.height, iw = photoImg.width * s, ih = photoImg.height * s;
+    ctx.drawImage(photoImg, cx - iw / 2 + E.x * d * .5, cy + d / 2 - ih + E.y * d * .5, iw, ih);
+    ctx.restore(); return;
+  }
   framePath(ctx, frame === 'none' ? 'square' : frame, cx, cy, i); ctx.clip();
   if (photoImg) {
     const E = state.endorser, s = Math.max(i / photoImg.width, i / photoImg.height) * E.zoom;
@@ -447,8 +453,12 @@ function drawCutout(ctx, i, x, y, d, disc, ink, rise = 1) {
   if (rise <= 0) return;
   ctx.save();
   // the head pops out over the top of the frame; with no frame the photo just stands on its own
-  ctx.beginPath(); ctx.rect(x - R * .15, y, d + R * .3, cy - y);
-  if (frame === 'circle') ctx.arc(cx, cy, R, 0, Math.PI * 2); else ctx.roundRect(x, cy - R, d, d, frame === 'square' ? d * .16 : 0);
+  ctx.beginPath();
+  if (frame === 'none') ctx.rect(x - d * 4, y - h * 4, d * 9, h * 5); // the whole cutout shows; only the bottom edge it stands on trims it
+  else {
+    ctx.rect(x - R * .15, y, d + R * .3, cy - y);
+    if (frame === 'circle') ctx.arc(cx, cy, R, 0, Math.PI * 2); else ctx.roundRect(x, cy - R, d, d, frame === 'square' ? d * .16 : 0);
+  }
   ctx.clip();
   ctx.translate(0, dy);
   if (img) {
@@ -721,7 +731,7 @@ function stripesPlan(P, T) {
     const hdr = stripeHeader(x0, cw - ew - (ew ? pad * .5 : 0), hh - pad * .3, A, B, P, ew ? 'left' : 'center');
     const half = cw * .5, names = fitNames(half - pad * .4, rh * .78, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'left');
     if (!hdr || !names) return null;
-    bands.push({ x: 0, y: 0, w: W, h: S.t + hh, color: A, from: 'top', t0: 0 });
+    bands.push({ x: 0, y: 0, w: W, h: S.t + hh + 1, color: A, from: 'top', t0: 0 });
     put(hdr, S.t + (hh - hdr.h) / 2, t, 'header'); t += hdr.dur * .6;
     if (ew) { const e = endBlock(S.r - ew, ew, hh * .92, { ...T, disc: B }, inkOn(A), 'stack', P); if (e) put(e, S.t + (hh - e.h) / 2, t + .2, 'endorser'); }
     C.forEach((c, i) => {
