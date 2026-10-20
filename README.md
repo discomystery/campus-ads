@@ -21,11 +21,11 @@ Then open http://localhost:8765 in Chrome (Chrome exports H.264 MP4 video, which
 
 ## Down-Ballot Studio (judicial races spin-off)
 
-`judicial/` is a separate studio for Election Day (Nov 3, 2026) judicial race ads aimed at people who missed early voting (one Supreme Court seat, three Court of Appeals seats) with its own red/white/blue/yellow branding. Live at `/campus-ads/judicial/` once Pages is on.
+`judicial/` is a separate studio for Election Day (Nov 3, 2026) judicial race ads aimed at people who missed early voting. It follows the campaign literature: a headline on white with key words in bold blue, then the four judges (Earls, Arrowood, Hampson, Walczyk) as cutouts on blue circles popping out of a yellow band, each with "Justice Anita" / **EARLS** / "for Supreme Court". Yellow, blue, white and black only. Live at `/campus-ads/judicial/` once Pages is on.
 
-- Every Meta and Google Display size: Meta feed 4:5 and 1:1, Stories/Reels 9:16 (text kept inside the safe zone), Facebook link ad, plus 300×250, 336×280, 728×90, 970×250, 160×600, 300×600, 320×50, 320×100, and a custom size. Each size is laid out by fitting text to boxes, so a custom size works too.
-- Candidate photos: shoulders-up transparent PNGs, each head popping out over a colored circle. Big feed sizes put faces above the names; smaller sizes put them beside the names or leave them off.
+- Every Meta and Google Display size: Meta feed 4:5 and 1:1, Stories/Reels 9:16 (text kept inside the safe zone), Facebook link ad, plus 300×250, 336×280, 728×90, 970×250, 160×600, 300×600, 320×50, 320×100, and a custom size. Each size is laid out by fitting blocks to boxes, so a custom size works too. Small sizes use the short headline and drop name lines; the tiniest show last names only.
+- Candidate photos: shoulders-up transparent PNGs. Empty edges are trimmed on upload so every judge lines up.
 - Endorser photo (upload, zoom, reposition) on the larger sizes by default. Choose which sizes on the Endorser tab.
-- Font: Roc Grotesk from Adobe Fonts. Add it to a web project, add this site's domain (and `localhost`), then paste the project ID on the Style tab. Until then it uses Archivo.
 - Election Day copy: every size says it's Election Day and when polls close (7:30 PM); the larger sizes add a polling-place line (vote.nc.gov). Election Day voting is at the voter's assigned precinct, so no voting site is named on the ads.
+- Font: Roc Grotesk Wide and Condensed from Adobe Fonts. Add them to a web project, add this site's domain (and `localhost`), then paste the project ID on the Style tab. Until then it uses Archivo's wide and narrow widths.
 - Export PNG/JPG per size or every checked size as one ZIP. Google sizes are kept under 150 KB.

@@ -6,7 +6,7 @@
 <title>Down-Ballot Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700;800;900&family=Archivo+Black&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -61,23 +61,22 @@
     </div>
 
     <div class="tab-body" data-body="cands">
-      <p class="hint">The office line prints above each name. When a size is too small for the full office, the short version is used. On the tiniest banners only names fit.</p>
+      <p class="hint">Each judge prints as three lines, like the literature: "Justice Anita" / <b>EARLS</b> / "for Supreme Court". Small sizes switch to the short office, then drop lines; the tiniest banners show last names only.</p>
       <label class="check"><input type="checkbox" data-bind="candPhotos"> Show candidate photos</label>
       <p class="hint">Shoulders-up PNGs with transparent backgrounds work best: each head pops out over a colored circle. Photos are left off sizes too small to show them.</p>
       <div id="candFields"></div>
-      <label>Ballot card title <span class="hint">(dropped when there's no room)</span>
-        <input type="text" data-bind="text.cardTitle">
-      </label>
     </div>
 
     <div class="tab-body" data-body="message" hidden>
       <label>Kicker <span class="hint">(small tag above the headline)</span>
         <input type="text" data-bind="text.kicker">
       </label>
-      <label>Headline <span class="hint">(wrap words in *stars* to highlight them)</span>
-        <textarea rows="2" data-bind="text.headline"></textarea>
+      <label>Headline <span class="hint">(wrap words in *stars* to make them bold and blue)</span>
+        <textarea rows="3" data-bind="text.headline"></textarea>
       </label>
-      <label class="check"><input type="checkbox" data-bind="upper"> All caps headline</label>
+      <label>Short headline <span class="hint">(used on sizes too small for the full one)</span>
+        <input type="text" data-bind="text.short">
+      </label>
       <label>Subhead <span class="hint">(dropped on small sizes)</span>
         <textarea rows="2" data-bind="text.sub"></textarea>
       </label>
@@ -87,7 +86,7 @@
       <label>Polling place line <span class="hint">(under the button when there's room)</span>
         <input type="text" data-bind="text.info">
       </label>
-      <label>Sticker <span class="hint">(starburst on big feed sizes)</span>
+      <label>Sticker <span class="hint">(starburst on tall feed sizes, if turned on in Style)</span>
         <input type="text" data-bind="text.sticker">
       </label>
       <label>Disclaimer
@@ -130,22 +129,21 @@
       <div id="themePick" class="theme-pick"></div>
       <label class="check"><input type="checkbox" data-bind="themeAuto"> Mix it up: a different background per size</label>
       <div class="color-row">
-        <label>Red<input type="color" data-bind="colors.red"></label>
-        <label>White<input type="color" data-bind="colors.white"></label>
-        <label>Blue<input type="color" data-bind="colors.blue"></label>
         <label>Yellow<input type="color" data-bind="colors.yellow"></label>
+        <label>Blue<input type="color" data-bind="colors.blue"></label>
+        <label>White<input type="color" data-bind="colors.white"></label>
+        <label>Text<input type="color" data-bind="colors.black"></label>
       </div>
       <button id="resetColors" class="ghost sm">Reset colors</button>
       <label>Pattern
         <select data-bind="pattern">
-          <option value="stars">Stars</option>
+          <option value="none">None (clean, like the literature)</option>
           <option value="burst">Sunburst</option>
-          <option value="halftone">Halftone</option>
-          <option value="none">None</option>
+          <option value="halftone">Halftone dots</option>
+          <option value="stars">Stars</option>
         </select>
       </label>
-      <label class="check"><input type="checkbox" data-bind="stripes"> Wavy flag stripes</label>
-      <label class="check"><input type="checkbox" data-bind="sticker"> Starburst sticker (big feed sizes)</label>
+      <label class="check"><input type="checkbox" data-bind="sticker"> Starburst sticker (tall feed sizes)</label>
       <label class="check"><input type="checkbox" data-bind="guides"> Show Stories safe zone (editor only)</label>
 
       <h3>Font</h3>
@@ -155,11 +153,16 @@
         <button id="kitLoad" class="ghost sm">Load</button>
       </div>
       <p class="hint" id="fontStatus"></p>
+      <label>Wide family <span class="hint">(headline, last names, button)</span><input type="text" list="famList" data-bind="font.display"></label>
       <div class="row2">
-        <label>Headline family<input type="text" list="famList" data-bind="font.display"></label>
-        <label>Weight<select data-bind="font.dWeight"><option>500</option><option>700</option><option>800</option><option>900</option></select></label>
+        <label>Regular weight<select data-bind="font.dWeight"><option>400</option><option>500</option><option>600</option><option>700</option></select></label>
+        <label>Bold weight<select data-bind="font.hWeight"><option>700</option><option>800</option><option>900</option></select></label>
       </div>
-      <label>Body family<input type="text" list="famList" data-bind="font.body"></label>
+      <div class="row2">
+        <label>Condensed family <span class="hint">(name lines)</span><input type="text" list="famList" data-bind="font.cond"></label>
+        <label>Weight<select data-bind="font.cWeight"><option>400</option><option>500</option><option>600</option><option>700</option></select></label>
+      </div>
+      <label>Body family <span class="hint">(subhead, quote, fine print)</span><input type="text" list="famList" data-bind="font.body"></label>
       <datalist id="famList"></datalist>
     </div>
 

@@ -1,8 +1,10 @@
 /* Down-Ballot Studio
-   Static ads for statewide judicial races (one Supreme Court seat, three Court
-   of Appeals seats) in every Meta and Google Display size. Each size is laid
-   out from the same content by fitting text into boxes, so a custom size works
-   too. Drawn on a canvas so exports are pixel-exact PNG or JPG. */
+   Election Day ads for statewide judicial races (one Supreme Court seat, three
+   Court of Appeals seats) in every Meta and Google Display size, styled after
+   the campaign literature: a headline up top, then the four judges' cutouts on
+   blue circles popping out of a yellow band. Each size is laid out by fitting
+   blocks into boxes, so a custom size works too. Drawn on a canvas so exports
+   are pixel-exact PNG or JPG. */
 (() => {
 'use strict';
 
@@ -10,7 +12,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const STORE_KEY = 'judstudio.v1';
+const STORE_KEY = 'judstudio.v2';
 const GOOGLE_CAP = 150 * 1024;
 
 /* ---------- sizes ---------- */
@@ -35,8 +37,9 @@ const presetOf = key => {
 };
 
 /* ---------- state ---------- */
-const DEFAULT_COLORS = { red: '#E63329', white: '#FFFFFF', blue: '#1B2A78', yellow: '#FFD100' };
-const THEMES = ['blue', 'red', 'yellow', 'white'];
+const DEFAULT_COLORS = { yellow: '#EFA531', blue: '#2F4A9B', white: '#FFFFFF', black: '#1A1A1A' };
+const THEMES = { classic: 'White + yellow', blue: 'Blue + yellow', yellow: 'Yellow + blue', white: 'White + blue' };
+const cand = (prefix, last, office, short) => ({ prefix, last, office, short, photo: null, zoom: 1, x: 0, y: 0 });
 function freshState() {
   const sizes = {};
   PRESETS.forEach(p => { sizes[p.key] = { endorser: !!p.big, disclaimer: true, batch: p.key !== 'custom' }; });
@@ -44,21 +47,20 @@ function freshState() {
     size: 'meta45', view: 'single', tab: 'cands',
     text: {
       kicker: 'Today is Election Day',
-      headline: "Don't skip the *judges!*",
-      sub: 'Missed early voting? There\'s still time. Vote at your assigned polling place, and go all the way down the ballot.',
-      cardTitle: 'Statewide judicial races',
-      cta: 'Polls open till 7:30\u00a0PM',
-      info: 'Find your polling place at vote.nc.gov. In line by 7:30\u00a0PM? You can vote.',
+      headline: 'Your rights are on the ballot, and *you* could cast the *deciding vote* for *justice*.',
+      short: 'Cast the *deciding vote* for *justice*.',
+      sub: 'Missed early voting? There\'s still time. Vote at your assigned polling place, and vote all the way down the ballot.',
+      cta: 'Polls open till 7:30 PM',
+      info: 'Find your polling place at vote.nc.gov. In line by 7:30 PM? You can vote.',
       sticker: 'It\'s not too late!',
       disclaimer: 'Paid for by [Committee Name]',
     },
-    upper: true,
     candPhotos: true,
     candidates: [
-      { seat: 'N.C. Supreme Court · Associate Justice', short: 'Supreme Court', name: 'Candidate One', photo: null, zoom: 1, x: 0, y: 0 },
-      { seat: 'N.C. Court of Appeals · Seat 1', short: 'Court of Appeals', name: 'Candidate Two', photo: null, zoom: 1, x: 0, y: 0 },
-      { seat: 'N.C. Court of Appeals · Seat 2', short: 'Court of Appeals', name: 'Candidate Three', photo: null, zoom: 1, x: 0, y: 0 },
-      { seat: 'N.C. Court of Appeals · Seat 3', short: 'Court of Appeals', name: 'Candidate Four', photo: null, zoom: 1, x: 0, y: 0 },
+      cand('Justice Anita', 'Earls', 'for Supreme Court', 'Supreme Court'),
+      cand('Judge John', 'Arrowood', 'for Court of Appeals', 'Court of Appeals'),
+      cand('Judge Tobias', 'Hampson', 'for Court of Appeals', 'Court of Appeals'),
+      cand('Judge Christine', 'Walczyk', 'for Court of Appeals', 'Court of Appeals'),
     ],
     endorser: {
       photo: null, zoom: 1, x: 0, y: 0,
@@ -68,9 +70,9 @@ function freshState() {
     sizes,
     custom: { w: 600, h: 500 },
     colors: { ...DEFAULT_COLORS },
-    theme: 'blue', themeAuto: false,
-    pattern: 'stars', stripes: true, sticker: true, guides: true,
-    font: { kit: '', display: 'roc-grotesk-wide', dWeight: '800', body: 'roc-grotesk' },
+    theme: 'classic', themeAuto: false,
+    pattern: 'none', sticker: false, guides: true,
+    font: { kit: '', display: 'roc-grotesk-wide', dWeight: '500', hWeight: '800', cond: 'roc-grotesk-condensed', cWeight: '500', body: 'roc-grotesk' },
     exp: { format: 'png', cap: true, zip: true },
   };
 }
@@ -86,22 +88,39 @@ function merge(base, saved) {
   return base;
 }
 let state = freshState();
-try { state = merge(freshState(), JSON.parse(localStorage.getItem(STORE_KEY))); } catch {}
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE_KEY));
+  if (saved) state = merge(freshState(), saved);
+  else { // carry photos and settings over from the first version's saved data
+    const old = JSON.parse(localStorage.getItem('judstudio.v1'));
+    if (old) {
+      old.candidates?.forEach((c, i) => { if (c?.photo && state.candidates[i]) Object.assign(state.candidates[i], { photo: c.photo, zoom: c.zoom ?? 1, x: c.x ?? 0, y: c.y ?? 0 }); });
+      state = merge(state, { endorser: old.endorser, sizes: old.sizes, custom: old.custom, exp: old.exp, font: { kit: old.font?.kit || '' } });
+    }
+  }
+} catch {}
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
-  catch { $('#warnings').textContent = 'Your browser ran out of room to save the photo. Try a smaller photo, or use Export → Save settings file.'; }
+  catch { $('#warnings').textContent = 'Your browser ran out of room to save the photos. Try smaller photos, or use Export → Save settings file.'; }
 }
 
 /* ---------- fonts ---------- */
-const FALLBACK = { display: '"Archivo Black", "Archivo", sans-serif', body: '"Archivo", sans-serif' };
-const WEIGHT = { body: 400, medium: 500, bold: 700, black: 800 };
+// Roc Grotesk Wide for headlines and last names, Condensed for the small name lines.
+// Until the Adobe Fonts project loads, Archivo's width axis stands in for both.
+const FALLBACK = '"Archivo", sans-serif';
 function font(role, size) {
-  const f = state.font, px = Math.max(1, size).toFixed(2);
-  if (role === 'display') return `${f.dWeight} ${px}px "${f.display}", ${FALLBACK.display}`;
-  return `${WEIGHT[role]} ${px}px "${f.body}", ${FALLBACK.body}`;
+  const f = state.font, px = `${Math.max(1, size).toFixed(2)}px`;
+  switch (role) {
+    case 'head': return `${f.dWeight} expanded ${px} "${f.display}", ${FALLBACK}`;
+    case 'heavy': return `${f.hWeight} expanded ${px} "${f.display}", ${FALLBACK}`;
+    case 'cond': return `${f.cWeight} condensed ${px} "${f.cond}", ${FALLBACK}`;
+    case 'condBold': return `700 condensed ${px} "${f.cond}", ${FALLBACK}`;
+    case 'medium': return `500 ${px} "${f.body}", ${FALLBACK}`;
+    default: return `400 ${px} "${f.body}", ${FALLBACK}`;
+  }
 }
-const kitFamilies = () => [...new Set([...document.fonts].map(f => f.family.replace(/["']/g, '')))]
-  .filter(f => /roc|grotesk/i.test(f) || ![ 'Archivo', 'Archivo Black' ].includes(f));
+const ROLES = ['head', 'heavy', 'cond', 'condBold', 'medium', 'body'];
+const kitFamilies = () => [...new Set([...document.fonts].map(f => f.family.replace(/["']/g, '')))].filter(f => f !== 'Archivo');
 function loadKit() {
   const id = state.font.kit;
   $$('link[data-kit]').forEach(l => { if (l.dataset.kit !== id) l.remove(); });
@@ -116,61 +135,61 @@ function loadKit() {
   });
 }
 function warmFonts() {
-  const f = state.font, loads = [`${f.dWeight} 40px "${f.display}"`, ...Object.values(WEIGHT).map(w => `${w} 40px "${f.body}"`),
-    `${f.dWeight} 40px "Archivo Black"`, ...Object.values(WEIGHT).map(w => `${w} 40px "Archivo"`)];
-  return Promise.all(loads.map(x => document.fonts.load(x).catch(() => []))).then(() => { fontStatus(); redraw(); });
+  return Promise.all(ROLES.map(r => document.fonts.load(font(r, 40)).catch(() => []))).then(() => { fontStatus(); redraw(); });
 }
 function fontStatus(msg) {
-  const fams = kitFamilies();
+  const fams = kitFamilies(), f = state.font;
   $('#famList').innerHTML = [...new Set([...fams, 'roc-grotesk', 'roc-grotesk-wide', 'roc-grotesk-condensed', 'roc-grotesk-compressed', 'roc-grotesk-extrawide'])]
-    .map(f => `<option value="${esc(f)}">`).join('');
+    .map(x => `<option value="${esc(x)}">`).join('');
   const has = fam => [...document.fonts].some(x => x.family.replace(/["']/g, '') === fam && x.status === 'loaded');
-  const f = state.font;
-  const ok = has(f.display) && has(f.body);
+  const missing = [f.display, f.cond, f.body].filter(x => !has(x));
   $('#fontStatus').innerHTML = msg ? `<span class="warn">${esc(msg)}</span>`
-    : ok ? `✓ Using <b>${esc(f.display)}</b> + <b>${esc(f.body)}</b>.`
-    : state.font.kit ? `Project loaded${fams.length ? ` (families: ${fams.map(esc).join(', ')})` : ''}, but "${esc(has(f.display) ? f.body : f.display)}" isn't in it. Using Archivo in its place.`
+    : !missing.length ? `✓ Using <b>${esc(f.display)}</b>, <b>${esc(f.cond)}</b> and <b>${esc(f.body)}</b>.`
+    : f.kit ? `Project loaded${fams.length ? ` (families: ${fams.map(esc).join(', ')})` : ''}, but ${missing.map(x => `"${esc(x)}"`).join(', ')} isn't in it. Using Archivo in its place.`
     : 'No Adobe Fonts project yet. Using Archivo in place of Roc Grotesk.';
-  document.documentElement.style.setProperty('--display', `"${f.display}", ${FALLBACK.display}`);
-  document.documentElement.style.setProperty('--body', `"${f.body}", ${FALLBACK.body}, system-ui`);
+  document.documentElement.style.setProperty('--display', `"${f.display}", ${FALLBACK}`);
+  document.documentElement.style.setProperty('--body', `"${f.body}", ${FALLBACK}, system-ui`);
 }
 
 /* ---------- colors ---------- */
 function rgb(hex) { const n = parseInt(hex.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 const rgba = (hex, a) => `rgba(${rgb(hex).join(',')},${a})`;
-function themeFor(P) {
-  let name = state.theme;
-  if (state.themeAuto) { const i = PRESETS.findIndex(p => p.key === P.key); name = THEMES[(THEMES.indexOf(state.theme) + Math.max(0, i)) % 4]; }
-  const { red, white, blue, yellow } = state.colors;
-  return {
-    blue:   { name, bg: blue,   ink: white, accent: yellow, accentInk: blue,  alt: red,  altInk: white, card: white, cardInk: blue,  oval: red,    shadow: red,  stripes: [red, white],  star: yellow, tag: red,  tagInk: white, cta: yellow, ctaInk: blue, tone: rgba(white, .09) },
-    red:    { name, bg: red,    ink: white, accent: yellow, accentInk: blue,  alt: blue, altInk: white, card: white, cardInk: blue,  oval: red,    shadow: blue, stripes: [blue, white], star: yellow, tag: blue, tagInk: white, cta: yellow, ctaInk: blue, tone: rgba(white, .13) },
-    yellow: { name, bg: yellow, ink: blue,  accent: red,    accentInk: white, alt: blue, altInk: white, card: white, cardInk: blue,  oval: red,    shadow: blue, stripes: [red, white],  star: red,    tag: blue, tagInk: white, cta: blue,   ctaInk: white, tone: rgba(white, .4) },
-    white:  { name, bg: white,  ink: blue,  accent: yellow, accentInk: blue,  alt: red,  altInk: white, card: blue,  cardInk: white, oval: yellow, shadow: red,  stripes: [red, blue],   star: red,    tag: red,  tagInk: white, cta: red,    ctaInk: white, tone: rgba(blue, .07) },
-  }[name];
+/* top = headline area, band = the strip the judges stand in, disc = the circles behind them */
+function themeFor(P, forced) {
+  const names = Object.keys(THEMES);
+  let name = forced || state.theme;
+  if (!forced && state.themeAuto) { const i = PRESETS.findIndex(p => p.key === P.key); name = names[(names.indexOf(state.theme) + Math.max(0, i)) % names.length]; }
+  const { yellow, blue, white, black } = state.colors;
+  const t = {
+    classic: { top: white,  ink: black, hi: blue,   kick: blue,   kickInk: white, band: yellow, bandInk: black, disc: blue,   cta: blue,   ctaInk: white, ctaTop: blue,   ctaTopInk: white },
+    blue:    { top: blue,   ink: white, hi: yellow, kick: yellow, kickInk: black, band: yellow, bandInk: black, disc: blue,   cta: blue,   ctaInk: white, ctaTop: yellow, ctaTopInk: black },
+    yellow:  { top: yellow, ink: black, hi: blue,   kick: blue,   kickInk: white, band: blue,   bandInk: white, disc: yellow, cta: yellow, ctaInk: black, ctaTop: blue,   ctaTopInk: white },
+    white:   { top: white,  ink: black, hi: blue,   kick: blue,   kickInk: white, band: blue,   bandInk: white, disc: yellow, cta: yellow, ctaInk: black, ctaTop: blue,   ctaTopInk: white },
+  }[name] || {};
+  return { name, ...t };
 }
 
 /* ---------- text: wrapping and fitting ---------- */
-// "Don't skip the *judges!*" -> words made of segments, starred segments highlighted
+// "for *justice*." -> words made of segments; starred segments get the heavy font and accent color
 function words(text) {
   const out = []; let hi = false, cur = null;
   for (const ch of text) {
     if (ch === '*') { hi = !hi; continue; }
-    if (/[^\S\u00a0]/.test(ch)) { cur = null; continue; } // a no-break space keeps "7:30 PM" together
+    if (/[^\S ]/.test(ch)) { cur = null; continue; } // a no-break space keeps "7:30 PM" together
     if (!cur) out.push(cur = []);
     const last = cur[cur.length - 1];
     if (last && last.hi === hi) last.t += ch; else cur.push({ t: ch, hi });
   }
   return out;
 }
-function wrap(ctx, text, f, maxW) {
+function wrap(ctx, text, f, maxW, fHi) {
   ctx.font = f;
   const space = ctx.measureText(' ').width, lines = [];
   let over = false;
   for (const para of String(text).split('\n')) {
     let line = [], lw = 0;
     for (const segs of words(para)) {
-      segs.forEach(s => { s.w = ctx.measureText(s.t).width; });
+      segs.forEach(s => { ctx.font = s.hi && fHi ? fHi : f; s.w = ctx.measureText(s.t).width; });
       const ww = segs.reduce((a, s) => a + s.w, 0);
       if (ww > maxW + .5) over = true;
       if (line.length && lw + space + ww > maxW) { lines.push({ words: line, w: lw }); line = []; lw = 0; }
@@ -180,23 +199,17 @@ function wrap(ctx, text, f, maxW) {
   }
   return { lines, over, space, maxW: lines.reduce((a, l) => Math.max(a, l.w), 0) };
 }
-const ASC = .8; // cap height-ish, as a share of font size
+const ASC = .76; // cap height-ish, as a share of font size
 const blockH = (n, size, lh) => n ? size * (1 + (n - 1) * lh) : 0;
 function drawLines(ctx, b, f, size, lh, x, y, w, align, color, hi) {
-  ctx.font = f; ctx.textBaseline = 'alphabetic';
+  ctx.textBaseline = 'alphabetic';
   b.lines.forEach((line, i) => {
     let cx = align === 'center' ? x + (w - line.w) / 2 : align === 'right' ? x + w - line.w : x;
     const base = y + size * ASC + i * size * lh;
-    line.words.forEach((word, wi) => {
-      word.segs.forEach((s, si) => {
-        if (s.hi && hi) {
-          const nextHi = si === word.segs.length - 1 && line.words[wi + 1]?.segs[0].hi;
-          const p = size * .1, sk = size * .08, top = base - size * ASC - p * .9, bot = base + size * .14;
-          const x0 = cx - p, x1 = cx + s.w + (nextHi ? b.space : 0) + p;
-          ctx.fillStyle = hi.fill;
-          ctx.beginPath(); ctx.moveTo(x0 + sk, top); ctx.lineTo(x1 + sk, top); ctx.lineTo(x1 - sk, bot); ctx.lineTo(x0 - sk, bot); ctx.closePath(); ctx.fill();
-          ctx.fillStyle = hi.ink;
-        } else ctx.fillStyle = color;
+    line.words.forEach(word => {
+      word.segs.forEach(s => {
+        const h = s.hi && hi;
+        ctx.font = h ? hi.font : f; ctx.fillStyle = h ? hi.color : color;
         ctx.fillText(s.t, cx, base); cx += s.w;
       });
       cx += b.space;
@@ -219,15 +232,15 @@ function search(build, lo, hi) {
 function fitStack(ctx, items, w, h, maxBase) {
   items = items.filter(it => it && it.text && String(it.text).trim());
   const build = (s, use) => {
-    let total = 0; const out = [];
+    let total = 0, maxW = 0; const out = [];
     for (const it of use) {
-      const size = Math.min(s * it.r, it.cap || 1e9), pad = it.pill ? size * .62 : 0;
-      const f = font(it.role, size), b = wrap(ctx, it.text, f, w - pad * 2);
+      const size = Math.min(s * it.r, it.cap || 1e9), pad = it.pill ? size * .7 : 0;
+      const f = font(it.role, size), fh = it.hi ? font(it.hiRole || it.role, size) : null, b = wrap(ctx, it.text, f, w - pad * 2, fh);
       if (b.over || b.lines.length > (it.maxLines || 99)) return null;
-      const bh = blockH(b.lines.length, size, it.lh || 1.15) + (it.pill ? size * .62 : 0), gap = out.length ? s * (it.gap ?? .3) : 0;
-      total += gap + bh; out.push({ it, size, f, b, h: bh, gap, pad });
+      const bh = blockH(b.lines.length, size, it.lh || 1.15) + (it.pill ? size * .7 : 0), gap = out.length ? s * (it.gap ?? .3) : 0;
+      total += gap + bh; maxW = Math.max(maxW, b.maxW + pad * 2); out.push({ it, size, f, fh, b, h: bh, gap, pad });
     }
-    return total <= h ? { s, out, total, w } : null;
+    return total <= h ? { s, out, total, w, maxW } : null;
   };
   const top = Math.min(maxBase || 1e9, h);
   const core = items.filter(i => !i.optional), coreFit = search(s => build(s, core), 2, top);
@@ -244,22 +257,17 @@ function drawStack(ctx, res, x, y, align) {
   if (!res) return;
   for (const o of res.out) {
     y += o.gap;
-    const it = o.it;
+    const it = o.it, hi = it.hi ? { color: it.hi, font: o.fh } : null;
     if (it.pill) {
       const pw = o.b.maxW + o.pad * 2, px = align === 'center' ? x + (res.w - pw) / 2 : x;
       ctx.fillStyle = it.pill; ctx.beginPath(); ctx.roundRect(px, y, pw, o.h, o.h / 2); ctx.fill();
-      drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, px + o.pad, y + o.size * .31, pw - o.pad * 2, 'center', it.color, it.hi);
-    } else drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, x, y, res.w, align, it.color, it.hi);
+      drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, px + o.pad, y + o.size * .35, pw - o.pad * 2, 'center', it.color, hi);
+    } else drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, x, y, res.w, align, it.color, hi);
     y += o.h;
   }
 }
 
 /* ---------- shapes ---------- */
-function rrect(x, y, w, h, r) { const p = new Path2D(); p.roundRect(x, y, w, h, r); return p; }
-function shadowFill(ctx, path, fill, shadow, off) {
-  ctx.save(); ctx.translate(off, off); ctx.fillStyle = shadow; ctx.fill(path); ctx.restore();
-  ctx.fillStyle = fill; ctx.fill(path);
-}
 function starPath(cx, cy, R, rot = -Math.PI / 2, points = 5, inner = .45) {
   const p = new Path2D();
   for (let i = 0; i < points * 2; i++) {
@@ -269,17 +277,8 @@ function starPath(cx, cy, R, rot = -Math.PI / 2, points = 5, inner = .45) {
   p.closePath(); return p;
 }
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-function waveStripes(ctx, x, y, w, h, colors, n, amp, wl, phase) {
-  for (let i = 0; i < n; i++) {
-    const top = y + i * h / n;
-    ctx.beginPath(); ctx.moveTo(x, y + h + amp * 2);
-    for (let xx = x; xx <= x + w + 8; xx += 8) ctx.lineTo(xx, top + amp * Math.sin((xx / wl) * Math.PI * 2 + phase));
-    ctx.lineTo(x + w + 8, y + h + amp * 2); ctx.closePath();
-    ctx.fillStyle = colors[i % colors.length]; ctx.fill();
-  }
-}
 
-/* ---------- photo ---------- */
+/* ---------- photos ---------- */
 let photoImg = null;
 function loadPhoto() {
   if (!state.endorser.photo) { photoImg = null; drawThumb(); redraw(); return; }
@@ -287,24 +286,26 @@ function loadPhoto() {
   img.onload = () => { photoImg = img; drawThumb(); redraw(); };
   img.src = state.endorser.photo;
 }
-function drawPhoto(ctx, cx, cy, d, T) {
+// endorser: a regular photo cropped to a circle with a ring
+function drawPhoto(ctx, cx, cy, d, ring, ink) {
+  ctx.fillStyle = ring; ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.fill();
+  const i = d * .9;
   ctx.save();
-  ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.clip();
+  ctx.beginPath(); ctx.arc(cx, cy, i / 2, 0, Math.PI * 2); ctx.clip();
   if (photoImg) {
-    const E = state.endorser, s = Math.max(d / photoImg.width, d / photoImg.height) * E.zoom;
+    const E = state.endorser, s = Math.max(i / photoImg.width, i / photoImg.height) * E.zoom;
     const iw = photoImg.width * s, ih = photoImg.height * s;
-    ctx.drawImage(photoImg, cx - iw / 2 - E.x * (iw - d) / 2, cy - ih / 2 - E.y * (ih - d) / 2, iw, ih);
+    ctx.drawImage(photoImg, cx - iw / 2 - E.x * (iw - i) / 2, cy - ih / 2 - E.y * (ih - i) / 2, iw, ih);
   } else {
-    ctx.fillStyle = T.card; ctx.fillRect(cx - d / 2, cy - d / 2, d, d);
-    ctx.fillStyle = rgba(T.cardInk, .22);
-    ctx.beginPath(); ctx.arc(cx, cy - d * .1, d * .2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx, cy + d * .42, d * .36, d * .3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#d9dbe3'; ctx.fillRect(cx - i / 2, cy - i / 2, i, i);
+    ctx.fillStyle = rgba(ink, .25);
+    ctx.beginPath(); ctx.arc(cx, cy - i * .1, i * .2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx, cy + i * .42, i * .36, i * .3, 0, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
 }
-
-/* Candidate cutouts (transparent PNGs, shoulders up) sit on a colored disc
-   with the head popping out over the top of it. */
+/* Candidate cutouts (transparent PNGs, shoulders up) stand on a colored disc
+   with the head popping out over the top of it, like the literature. */
 const candImgs = [];
 function loadCandPhotos() {
   state.candidates.forEach((c, i) => {
@@ -316,377 +317,294 @@ function loadCandPhotos() {
   });
   drawCandThumbs(); redraw();
 }
-function drawCutout(ctx, i, x, y, w, h, T) {
+const POP = 1.12; // cutout box height as a multiple of the disc diameter
+function drawCutout(ctx, i, x, y, d, disc, ink) {
   const c = state.candidates[i], img = candImgs[i]?.complete ? candImgs[i] : null;
-  const R = w / 2, cx = x + R, cy = y + h - R;
-  ctx.fillStyle = T.accent; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  const h = d * POP, R = d / 2, cx = x + R, cy = y + h - R;
+  ctx.fillStyle = disc; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
   ctx.save();
-  ctx.beginPath(); ctx.rect(x - R * .15, y, w + R * .3, cy - y); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+  ctx.beginPath(); ctx.rect(x - R * .15, y, d + R * .3, cy - y); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
   if (img) {
     // fit by height so the top of the head touches the top of the box at zoom 1
     const s = h * c.zoom / img.height, iw = img.width * s, ih = img.height * s;
-    ctx.drawImage(img, cx - iw / 2 + c.x * w * .5, y + h - ih + c.y * h * .5, iw, ih);
+    ctx.drawImage(img, cx - iw / 2 + c.x * d * .5, y + h - ih + c.y * h * .5, iw, ih);
   } else {
-    ctx.fillStyle = rgba(T.accentInk, .25);
-    ctx.beginPath(); ctx.arc(cx, y + h * .36, w * .22, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx, y + h * .98, w * .42, h * .34, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = rgba(ink, .28);
+    ctx.beginPath(); ctx.arc(cx, y + h * .36, d * .2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx, y + h * .98, d * .4, h * .34, 0, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
+}
+
+/* ---------- blocks ---------- */
+// Every block is fitted to a width and height first and reports its natural
+// height (and width), then is drawn wherever the layout settles it.
+const usePhotos = () => state.candPhotos;
+
+function headerBlock(ctx, x, w, h, T, align, P, small) {
+  const t = state.text, m = Math.min(P.w, P.h);
+  const make = head => fitStack(ctx, [
+    !small && { text: t.kicker.toUpperCase(), role: 'condBold', r: .5, cap: w * .045 + 8, min: 9, pill: T.kick, color: T.kickInk, maxLines: 1, lh: 1, gap: 0 },
+    { text: head, role: 'head', hiRole: 'heavy', r: 1, lh: 1.04, color: T.ink, hi: T.hi, gap: .42 },
+    !small && { text: t.sub, role: 'medium', r: .4, cap: w * .03 + 8, min: 9, color: T.ink, optional: true, lh: 1.3, gap: .5 },
+  ], w, h, Math.min(w * .1, 110));
+  // the full line from the literature where it reads well; the short one on small sizes
+  const long = t.headline.trim() ? make(t.headline) : null, short = t.short.trim() ? make(t.short) : null;
+  const res = long && (!short || long.s >= Math.max(15, m * .042)) ? long : short || long;
+  return res && { h: res.total, w: res.maxW, draw: y => drawStack(ctx, res, x, y, align) };
+}
+
+/* The four judges: a cutout on a disc, then "Justice Anita" / EARLS / "for Supreme Court".
+   Tries 4 across, 2x2 and one column; photos win when they fit with readable
+   names, then the office line, then the first-name line, then the biggest size. */
+function lineupBlock(ctx, x, w, h, T, ink) {
+  const C = state.candidates;
+  const fits = [];
+  for (const cols of [4, 2, 1]) {
+    if (cols === 1 && w > 260) continue;
+    const gx = w * (cols === 4 ? .03 : .07), cw = (w - gx * (cols - 1)) / cols, rows = Math.ceil(C.length / cols);
+    // biggest last-name size that fits the column
+    const nMax = search(n => C.every(c => !wrap(ctx, c.last, font('heavy', n), cw).over) ? n : null, 4, 260);
+    if (!nMax) continue;
+    for (const photos of usePhotos() ? [true, false] : [false]) for (const pre of [true, false]) for (const off of [true, false]) {
+      const build = (d, n) => {
+        const p = n * .56;
+        if (n > nMax + .01 || ((pre || off) && p < 8)) return null;
+        if (photos && (d > cw * .96 || n < 10)) return null;
+        const pb = pre ? C.map(c => wrap(ctx, c.prefix, font('cond', p), cw)) : null;
+        if (pb && pb.some(b => b.over || b.lines.length > 2)) return null;
+        let ob = null;
+        if (off) {
+          const mode = (k, ml) => { const o = C.map(c => wrap(ctx, (c[k] || c.office || c.short || '').trim(), font('cond', p), cw)); return o.every(b => !b.over && b.lines.length <= ml) ? o : null; };
+          ob = mode('office', 1) || mode('short', 1) || mode('office', 2) || mode('short', 2);
+          if (!ob) return null;
+        }
+        const ph = photos ? d * POP : 0;
+        const cells = C.map((c, i) => {
+          const pl = pb ? pb[i].lines.length : 0, ol = ob ? ob[i].lines.length : 0;
+          return { pl, ol, h: ph + (photos ? n * .28 : 0) + (pl ? blockH(pl, p, 1.05) + p * .2 : 0) + n * .98 + (ol ? p * .25 + blockH(ol, p, 1.05) : 0) };
+        });
+        const rowH = []; for (let r = 0; r < rows; r++) rowH.push(Math.max(...cells.slice(r * cols, r * cols + cols).map(c => c.h)));
+        const gy = n * (photos ? .9 : .7), total = rowH.reduce((a, b) => a + b, 0) + gy * (rows - 1);
+        return total <= h ? { cols, gx, cw, rows, rowH, gy, total, d: photos ? d : 0, ph, n, p, pb, ob, photos, pre, off } : null;
+      };
+      // search() needs its low end to fit, so start where the smallest allowed text is
+      const nLo = pre || off ? 8 / .56 : 6;
+      const res = photos ? search(d => build(d, Math.min(nMax, d * .25)), Math.max(40, nLo / .25), Math.min(cw * .96, h))
+        : search(n => build(0, n), nLo, nMax);
+      if (res) fits.push(res);
+    }
+  }
+  if (!fits.length) return null;
+  const rank = f => (f.photos ? 4 : 0) + (f.off ? 2 : 0) + (f.pre ? 1 : 0);
+  const top = Math.max(...fits.map(rank));
+  const F = fits.filter(f => rank(f) === top).reduce((a, b) => ((b.photos ? b.d * b.n : b.n) > (a.photos ? a.d * a.n : a.n) ? b : a));
+  const width = F.cols * F.cw + (F.cols - 1) * F.gx;
+  return { h: F.total, w: width, bandTop: F.photos ? F.ph - F.d * .7 : -F.n * .6, draw: y => {
+    let cy = y;
+    for (let r = 0; r < F.rows; r++) {
+      for (let col = 0; col < F.cols; col++) {
+        const i = r * F.cols + col; if (i >= C.length) continue;
+        const cx = x + (w - width) / 2 + col * (F.cw + F.gx);
+        let ty = cy;
+        if (F.photos) { drawCutout(ctx, i, cx + (F.cw - F.d) / 2, cy, F.d, T.disc, ink); ty += F.ph + F.n * .28; }
+        if (F.pb) { drawLines(ctx, F.pb[i], font('cond', F.p), F.p, 1.05, cx, ty, F.cw, 'center', ink); ty += blockH(F.pb[i].lines.length, F.p, 1.05) + F.p * .2; }
+        ctx.font = font('heavy', F.n); ctx.fillStyle = ink; ctx.textAlign = 'center';
+        ctx.fillText(C[i].last, cx + F.cw / 2, ty + F.n * ASC); ctx.textAlign = 'left';
+        ty += F.n * .98;
+        if (F.ob) drawLines(ctx, F.ob[i], font('cond', F.p), F.p, 1.05, cx, ty + F.p * .25, F.cw, 'center', ink);
+      }
+      cy += F.rowH[r] + F.gy;
+    }
+  } };
+}
+
+// endorser: 'row' = photo beside the words, 'stack' = photo above them
+function endBlock(ctx, x, w, h, T, ink, style) {
+  const E = state.endorser, gap = Math.min(w, h) * .08;
+  const items = [
+    { text: E.tag.toUpperCase(), role: 'condBold', r: .55, min: 8, color: ink, optional: true, maxLines: 1, lh: 1, gap: 0 },
+    { text: E.name, role: 'heavy', r: 1, lh: 1.02, color: ink, maxLines: 2, gap: .25 },
+    { text: E.title, role: 'cond', r: .66, min: 8.5, color: ink, optional: true, lh: 1.1, maxLines: 2, gap: .2 },
+    { text: E.quote ? `“${E.quote}”` : '', role: 'medium', r: .55, min: 9, color: ink, optional: true, lh: 1.3, gap: .5 },
+  ];
+  if (style === 'stack') {
+    const d = Math.min(w * .8, h * .55), res = fitStack(ctx, items, w, h - d - gap, Math.min(w * .13, 46));
+    return { h: d + (res ? gap + res.total : 0), w, draw: y => {
+      drawPhoto(ctx, x + w / 2, y + d / 2, d, T.disc, ink);
+      if (res) drawStack(ctx, res, x, y + d + gap, 'center');
+    } };
+  }
+  const d = Math.min(h, w * .3), tw = Math.min(w - d - gap, w * .62), res = fitStack(ctx, items, tw, h, Math.min(tw * .09, 44));
+  const bh = Math.max(d * .85, res ? res.total : 0), dd = Math.min(d, Math.max(bh, d * .85)), gw = dd + gap + (res ? res.maxW : 0);
+  return { h: Math.max(dd, bh), w: gw, draw: y => {
+    const H = Math.max(dd, bh), x0 = x + (w - gw) / 2;
+    drawPhoto(ctx, x0 + dd / 2, y + H / 2, dd, T.disc, ink);
+    if (res) drawStack(ctx, { ...res, w: res.maxW }, x0 + dd + gap, y + (H - res.total) / 2, 'left');
+  } };
+}
+
+// the button, plus the polling-place line under it when there's room
+function ctaBlock(ctx, x, w, h, fill, fillInk, ink, align, withInfo = true) {
+  const text = state.text.cta.trim(), info = withInfo ? state.text.info.trim() : '';
+  if (!text) return null;
+  const build = (s, inc) => {
+    const b = wrap(ctx, text, font('heavy', s), w - s * 1.8);
+    if (b.over || b.lines.length > 2) return null;
+    const ph = blockH(b.lines.length, s, 1.08) + s * 1.1, pw = b.maxW + s * 1.8;
+    let tot = ph, ib = null, is = 0;
+    if (inc) {
+      is = s * .5; ib = wrap(ctx, info, font('medium', is), w);
+      if (ib.over || ib.lines.length > 2) return null;
+      tot += s * .45 + blockH(ib.lines.length, is, 1.25);
+    }
+    return tot <= h && pw <= w ? { s, b, ph, pw, h: tot, ib, is } : null;
+  };
+  const bare = search(s => build(s, false), 4, Math.min(h * .5, 52));
+  const full = info ? search(s => build(s, true), 4, Math.min(h * .5, 52)) : null;
+  const F = full && full.is >= 9 && bare && full.s >= bare.s * .6 ? full : bare;
+  if (!F) return null;
+  return { h: F.h, w: Math.max(F.pw, F.ib ? F.ib.maxW : 0), draw: y => {
+    const px = align === 'center' ? x + (w - F.pw) / 2 : x;
+    ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(px, y, F.pw, F.ph, F.ph / 2); ctx.fill();
+    drawLines(ctx, F.b, font('heavy', F.s), F.s, 1.08, px + F.s * .9, y + F.s * .55, F.pw - F.s * 1.8, 'center', fillInk);
+    if (F.ib) drawLines(ctx, F.ib, font('medium', F.is), F.is, 1.25, x, y + F.ph + F.s * .45, align === 'center' ? w : F.ib.maxW, align, ink);
+  } };
+}
+
+function discBlock(ctx, x, w, size, ink, align) {
+  const text = state.text.disclaimer.trim();
+  ctx.font = font('medium', size);
+  const tw = ctx.measureText(text).width, s = tw > w ? size * w / tw : size;
+  return { h: s * 1.1, w: Math.min(tw, w), draw: y => {
+    ctx.font = font('medium', s); ctx.fillStyle = ink; ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = align; ctx.fillText(text, align === 'center' ? x + w / 2 : x, y + s * ASC); ctx.textAlign = 'left';
+  } };
 }
 
 /* ---------- layout ---------- */
 function family(P, r) {
   if (P.h <= 120 || r.h / r.w < .2) return 'strip';
+  if (r.h / r.w < .42) return 'cols';
   return r.h / r.w < .75 ? 'wide' : 'tall';
 }
-const split = (r, side, size, gap = 0) => {
-  const a = side === 'top' ? { ...r, h: size } : side === 'bottom' ? { ...r, y: r.y + r.h - size, h: size }
-    : side === 'left' ? { ...r, w: size } : { ...r, x: r.x + r.w - size, w: size };
-  const b = side === 'top' ? { ...r, y: r.y + size + gap, h: r.h - size - gap } : side === 'bottom' ? { ...r, h: r.h - size - gap }
-    : side === 'left' ? { ...r, x: r.x + size + gap, w: r.w - size - gap } : { ...r, w: r.w - size - gap };
-  return [a, b];
-};
-/* Splits the ad into boxes. Tall sizes only get a first guess here; placeTall()
-   then hands the space the header and button don't use to the middle. */
-function layout(P) {
+// stack rows down a column, spreading spare height evenly between them
+function spread(rows, y0, h, gap) {
+  rows = rows.filter(Boolean);
+  const slack = h - rows.reduce((a, b) => a + b.h, 0) - gap * (rows.length - 1), extra = Math.max(0, slack) / (rows.length + 1);
+  let y = y0 + extra;
+  return rows.map(r => { const at = y; y += r.h + gap + extra; return at; });
+}
+/* Works out where every block goes. Returns the band (yellow strip) and the
+   draw calls; render() paints the background and band first, then these. */
+function plan(ctx, P, T) {
   const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {};
-  const pad = Math.round(clamp(m * .055, 5, 60));
-  let r = P.safe ? { x: W * P.safe.l, y: H * P.safe.t, w: W * (1 - P.safe.l - P.safe.r), h: H * (1 - P.safe.t - P.safe.b) }
+  const pad = Math.round(clamp(m * .06, 5, 64));
+  const r = P.safe ? { x: W * P.safe.l, y: H * P.safe.t, w: W * (1 - P.safe.l - P.safe.r), h: H * (1 - P.safe.t - P.safe.b) }
     : { x: pad, y: pad, w: W - pad * 2, h: H - pad * 2 };
-  const fam = family(P, r), L = { fam, pad, m };
-  const endorser = !!cfg.endorser, t = state.text;
-  // the stripes band sits along the bottom edge; keep text off it
-  L.band = state.stripes && fam !== 'strip' ? (P.safe ? H * P.safe.b * .8 : Math.round(clamp(H * (fam === 'wide' ? .075 : .06), 10, 90))) : 0;
-  if (L.band && !P.safe) r.h -= Math.max(0, L.band * .75 - pad * .4);
-  if (cfg.disclaimer && t.disclaimer.trim()) {
-    const dh = Math.round(clamp(H * (fam === 'strip' ? .17 : .028), fam === 'strip' ? 8.5 : 12, 34));
-    [L.disc, r] = split(r, 'bottom', dh, fam === 'strip' ? Math.max(2, dh * .2) : dh * .5);
-  }
-  const hasCta = !!t.cta.trim();
-  if (fam === 'tall') {
-    L.gap = Math.round(m * .035); L.body = r; L.endorser = endorser; L.side = endorser && r.w >= 420;
-    if (hasCta) L.cta = split(r, 'bottom', clamp(r.h * (t.info.trim() ? .13 : .09), 26, 150))[0];
-    L.header = split(r, 'top', r.h * (endorser ? (L.side ? .34 : .26) : r.w < 420 ? .27 : .36))[0];
-    if (state.sticker && t.sticker.trim() && L.header.w >= 560) {
-      const d = Math.min(L.header.h * 1.05, L.header.w * .3);
-      L.sticker = { cx: L.header.x + L.header.w - d / 2, cy: L.header.y + L.header.h * .45, d };
-      L.header.w -= d + L.gap * .5;
+  const fam = family(P, r), ops = [], put = (b, y) => b && ops.push(() => b.draw(y));
+  const endOn = !!cfg.endorser, discOn = cfg.disclaimer && state.text.disclaimer.trim();
+  let band = null, sticker = null;
+
+  if (fam === 'tall' || fam === 'wide') {
+    const gap = Math.round(m * (fam === 'tall' ? .035 : .03));
+    const disc = discOn ? discBlock(ctx, r.x, r.w, clamp(H * .02, 10, 24), T.bandInk, 'center') : null;
+    const avail = r.h - (disc ? disc.h + gap * .6 : 0);
+    let hdr, endTop = null;
+    if (fam === 'tall') {
+      let hw = r.w;
+      if (state.sticker && state.text.sticker.trim() && r.w >= 560) { const d = Math.min(avail * .2, r.w * .26); sticker = { d }; hw = r.w - d - gap; }
+      hdr = headerBlock(ctx, r.x, hw, avail * (endOn ? .27 : .32), T, sticker ? 'left' : 'center', P, false);
+    } else {
+      const sw = endOn ? r.w * .36 : 0;
+      hdr = headerBlock(ctx, r.x, r.w - sw - (sw ? gap : 0), avail * .36, T, 'left', P, false);
+      if (endOn) endTop = endBlock(ctx, r.x + r.w - sw, sw, avail * .36, T, T.ink, 'row');
     }
-  } else if (fam === 'wide') {
-    const gap = Math.round(m * .07);
-    let cols = r;
-    if (endorser) [L.end, cols] = split(cols, 'left', r.w * .2, gap);
-    let head;
-    [head, L.cands] = split(cols, 'left', cols.w * (endorser ? .48 : .5), gap);
-    L.headCol = head; L.colGap = gap * .5;
-    if (hasCta) [L.cta, head] = split(head, 'bottom', clamp(head.h * (t.info.trim() ? .3 : .2), 16, 130), L.colGap);
-    L.header = head;
+    const cta = ctaBlock(ctx, r.x, r.w, clamp(avail * (fam === 'tall' ? .13 : .16), 30, 170), T.cta, T.ctaInk, T.bandInk, 'center');
+    const endRow = fam === 'tall' && endOn ? endBlock(ctx, r.x, r.w, avail * .17, T, T.bandInk, r.w < 420 ? 'stack' : 'row') : null;
+    const top = endTop ? { h: Math.max(hdr?.h || 0, endTop.h), draw: y => { const hh = Math.max(hdr?.h || 0, endTop.h); hdr?.draw(y + (hh - hdr.h) / 2); endTop.draw(y + (hh - endTop.h) / 2); } } : hdr;
+    const used = [top, cta, endRow].filter(Boolean);
+    const lu = lineupBlock(ctx, r.x, r.w, avail - used.reduce((a, b) => a + b.h, 0) - gap * used.length - avail * .04, T, T.bandInk);
+    const rows = [top, lu, endRow, cta].filter(Boolean), ys = spread(rows, r.y, avail, gap);
+    rows.forEach((row, i) => put(row, ys[i]));
+    if (lu) { const ly = ys[rows.indexOf(lu)] + lu.bandTop; band = { x: 0, y: ly, w: W, h: H - ly }; }
+    else if (cta) { const cy = ys[rows.indexOf(cta)] - gap; band = { x: 0, y: cy, w: W, h: H - cy }; }
+    if (disc) put(disc, r.y + r.h - disc.h);
+    if (sticker && hdr) sticker = { d: sticker.d, cx: r.x + r.w - sticker.d / 2, cy: ys[0] + top.h / 2 };
   } else {
-    const gap = Math.max(4, Math.round(r.h * .14));
-    if (endorser) [L.end, r] = split(r, 'left', Math.min(r.h, r.w * .2), gap);
-    if (hasCta && r.w >= 560) [L.cta, r] = split(r, 'right', r.w * .2, gap);
-    [L.header, L.cands] = split(r, 'left', r.w * .34, gap);
-    // too short for headline + button: on Election Day the button (polls close) wins
-    if (hasCta && !L.cta && L.header.h < 54) { L.cta = L.header; L.header = null; }
-    else if (hasCta && !L.cta && L.header.h >= 54) { [L.cta, L.header] = split(L.header, 'bottom', L.header.h * .32, L.header.h * .06); L.headCol = { ...L.header, h: L.header.h + L.cta.h + L.header.h * .06 }; L.colGap = L.header.h * .06; }
+    // side by side: headline (and button) on the left, judges in the band on the right
+    const gap = Math.round(fam === 'strip' ? Math.max(5, r.h * .16) : m * .07);
+    const leftW = r.w * (fam === 'strip' ? .3 : endOn ? .33 : .38);
+    const ctaCol = fam === 'strip' && r.w >= 560 && state.text.cta.trim() ? r.w * .2 : 0;
+    const endW = fam === 'cols' && endOn ? r.w * .17 : 0;
+    const discH = discOn ? clamp(H * (fam === 'strip' ? .15 : .06), 7, 16) : 0;
+    const lh = r.h - (discH ? discH + gap * .3 : 0);
+    // left column on the headline color
+    let left = [];
+    const shortStrip = fam === 'strip' && lh < 46;
+    if (shortStrip) left = [ctaBlock(ctx, r.x, leftW, lh, T.ctaTop, T.ctaTopInk, T.ink, 'left', false)];
+    else {
+      const ctaH = ctaCol ? 0 : lh * (fam === 'strip' ? .36 : .3);
+      const hdr = headerBlock(ctx, r.x, leftW, lh - ctaH - (ctaH ? gap * .4 : 0), T, 'left', P, fam === 'strip');
+      const cta = ctaH ? ctaBlock(ctx, r.x, leftW, ctaH, T.ctaTop, T.ctaTopInk, T.ink, 'left', fam !== 'strip') : null;
+      left = [hdr, cta];
+    }
+    const lb = left.filter(Boolean);
+    spread(lb, r.y, lh, gap * .4).forEach((y, i) => put(lb[i], y));
+    if (discH) put(discBlock(ctx, r.x, leftW, discH * .8, T.ink, 'left'), r.y + r.h - discH);
+    // the band: everything right of the left column, full height
+    const bx = r.x + leftW + gap * .5;
+    band = { x: bx, y: 0, w: W - bx, h: H };
+    const lx = bx + gap * .5, lw = r.x + r.w - lx - endW - ctaCol - (endW || ctaCol ? gap : 0);
+    const lu = lineupBlock(ctx, lx, lw, r.h, T, T.bandInk);
+    if (lu) put(lu, r.y + (r.h - lu.h) / 2);
+    if (endW) { const e = endBlock(ctx, r.x + r.w - endW, endW, r.h, T, T.bandInk, 'stack'); if (e) put(e, r.y + (r.h - e.h) / 2); }
+    if (ctaCol) { const c = ctaBlock(ctx, r.x + r.w - ctaCol, ctaCol, r.h, T.cta, T.ctaInk, T.bandInk, 'center', false); if (c) put(c, r.y + (r.h - c.h) / 2); }
   }
-  return L;
+  return { fam, band, ops, sticker, m };
 }
 
 /* ---------- drawing ---------- */
-// Every block is fitted to a box first and reports its natural height,
-// then drawn at whatever y the layout settles on.
-function drawBg(ctx, P, T, L) {
-  const W = P.w, H = P.h, m = L.m;
-  ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
-  const rand = rng(W * 7 + H * 13);
+function drawPattern(ctx, P, T, L) {
+  const W = P.w, H = P.h, m = L.m, rand = rng(W * 7 + H * 13), tone = rgba(T.ink, .06);
   if (state.pattern === 'burst') {
-    const cx = W * .82, cy = H * .18, R = Math.hypot(W, H), n = 28;
-    ctx.fillStyle = T.tone;
+    const cx = W / 2, cy = L.band ? L.band.y : H, R = Math.hypot(W, H), n = 32;
+    ctx.fillStyle = tone;
     for (let i = 0; i < n; i += 2) {
       const a0 = i * Math.PI * 2 / n, a1 = (i + 1) * Math.PI * 2 / n;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a0) * R, cy + Math.sin(a0) * R); ctx.lineTo(cx + Math.cos(a1) * R, cy + Math.sin(a1) * R); ctx.fill();
     }
   } else if (state.pattern === 'halftone') {
-    const R = Math.max(W, H) * .55, step = clamp(m * .04, 5, 40);
-    ctx.fillStyle = rgba(T.alt, .6);
+    const R = Math.max(W, H) * .5, step = clamp(m * .035, 5, 36);
+    ctx.fillStyle = rgba(T.hi, .3);
     for (let y = 0; y < R; y += step) for (let x = W - R; x < W + step; x += step) {
       const dd = Math.hypot(W - x, y) / R;
       if (dd < 1) { ctx.beginPath(); ctx.arc(x, y, step * .42 * (1 - dd), 0, Math.PI * 2); ctx.fill(); }
     }
   } else if (state.pattern === 'stars') {
-    const n = clamp(Math.round(W * H / (m * m) * 7), 5, 40);
-    ctx.fillStyle = T.tone;
+    const n = clamp(Math.round(W * H / (m * m) * 6), 5, 36);
+    ctx.fillStyle = tone;
     for (let i = 0; i < n; i++) ctx.fill(starPath(rand() * W, rand() * H, m * (.025 + rand() * .05), -Math.PI / 2 + (rand() - .5) * .6));
   }
-  if (L.band) {
-    const n = 4, h = L.band, amp = h / n * .45;
-    waveStripes(ctx, 0, H - h, W, h + 2, [...T.stripes, ...T.stripes], n, amp, Math.max(W * .55, 160), .6);
-  }
 }
-
-function headerBlock(ctx, r, T, L) {
-  const t = state.text, big = r.w * .028 + 6, strip = L.fam === 'strip';
-  const hl = state.upper ? t.headline.toUpperCase() : t.headline;
-  // Election Day ads: the "today" tag always shows; a banner too small for a button
-  // carries the button's text (polls close) as the tag instead
-  const kick = strip ? null
-    : { text: t.kicker, pill: T.tag, color: T.tagInk, r: r.w < 420 ? .42 : .26 };
-  const res = fitStack(ctx, [
-    kick && { text: kick.text.toUpperCase(), role: 'black', r: kick.r, cap: big + 4, pill: kick.pill, color: kick.color, maxLines: 2, lh: 1.1, gap: 0 },
-    { text: hl, role: 'display', r: 1, lh: .98, color: T.ink, hi: { fill: T.accent, ink: T.accentInk }, gap: .3 },
-    { text: strip ? '' : t.sub, role: 'medium', r: .32, cap: big + 9, min: 8.5, color: T.ink, optional: true, lh: 1.28, gap: .32 },
-  ], r.w, r.h, Math.min(r.w * (strip ? .3 : .19), 200));
-  return res && { h: res.total, draw: y => drawStack(ctx, res, r.x, y, 'left') };
-}
-
-// candidate photo height as a multiple of the name size (beside the name, or stacked above it); smallest worth showing
-const PHOTO_H = 3.2, PHOTO_STACK_H = 4.6, PHOTO_MIN = 34;
-function buildCands(ctx, r, n, cols, seats, title, photos, stack) {
-  const m = n * .5;
-  if (seats && m < 6.5) return null;
-  const ts = clamp(n * .42, 6.5, 40);
-  if (title && n * .42 < 6.5) return null;
-  const ph = photos ? n * (stack ? PHOTO_STACK_H : PHOTO_H) : 0, pw = ph * .8, pg = photos ? n * .5 : 0;
-  if (photos && ph < PHOTO_MIN) return null;
-  const pad = n * .62, gapX = n * .9, gapY = n * .7, titleH = title ? ts * 2.1 : 0;
-  const ow = n * 1.15, oh = n * .74, og = n * .48;
-  const cellW = (r.w - pad * 2 - gapX * (cols - 1)) / cols, tw = cellW - (stack ? 0 : pw + pg) - ow - og;
-  if (stack && pw > cellW) return null;
-  if (tw <= 4) return null;
-  const names = state.candidates.map(c => wrap(ctx, c.name, font('black', n), tw));
-  if (names.some(nb => nb.over || nb.lines.length > 2)) return null;
-  // same office style on every row: full on one line, else short on one line, else either on two
-  let offices = names.map(() => null);
-  if (seats) {
-    const tryMode = (key, maxLines) => {
-      const out = state.candidates.map(c => {
-        const t = (c[key].trim() || c.seat.trim() || c.short.trim()).toUpperCase();
-        return t ? wrap(ctx, t, font('bold', m), stack ? cellW : tw) : { lines: [] };
-      });
-      return out.every(b => !b.over && b.lines.length <= maxLines) ? out : null;
-    };
-    offices = tryMode('seat', 1) || tryMode('short', 1) || tryMode('seat', 2) || tryMode('short', 2);
-    if (!offices) return null;
-  }
-  const cells = names.map((nb, i) => {
-    const sb = offices[i]?.lines.length ? offices[i] : null, sh = sb ? blockH(sb.lines.length, m, 1.15) + m * .45 : 0;
-    const th = sh + blockH(nb.lines.length, n, 1.02);
-    return { nb, sb, sh, th, h: stack ? ph + n * .45 + th : Math.max(th, ph) };
-  });
-  const rows = Math.ceil(cells.length / cols), rowH = [];
-  for (let i = 0; i < rows; i++) rowH.push(Math.max(...cells.slice(i * cols, i * cols + cols).map(c => c.h)));
-  const total = titleH + pad * 2 + rowH.reduce((a, b) => a + b, 0) + gapY * (rows - 1);
-  return total <= r.h ? { n, m, ts, pad, gapX, gapY, titleH, ow, oh, og, ph, pw, pg, cellW, cols, rows, rowH, cells, total, title, seats, photos, stack } : null;
-}
-const usePhotos = () => state.candPhotos && state.candidates.some(c => c.photo);
-/* Candidate photos win whenever they fit at a useful size; then office lines
-   at a readable size; then the card title; then the biggest names. */
-function fitCands(ctx, r, allowTitle) {
-  const ar = r.w / r.h, colsOpts = [1, 2, 4].filter(c => c === 1 || (c === 2 && ar > .85) || (c === 4 && ar > 2.6));
-  const fits = [];
-  const modes = usePhotos() ? [[true, false], [true, true], [false, false]] : [[false, false]];
-  for (const [photos, stack] of modes) for (const seats of [true, false])
-  for (const title of allowTitle && state.text.cardTitle.trim() ? [true, false] : [false]) for (const cols of colsOpts) {
-    const lo = Math.max(4, seats ? 13 : 0, title ? 15.5 : 0, photos ? PHOTO_MIN / (stack ? PHOTO_STACK_H : PHOTO_H) : 0);
-    const res = search(n => buildCands(ctx, r, n, cols, seats, title, photos, stack), lo, Math.min(r.h * .3, r.w * (cols === 1 ? .16 : .1), 76));
-    if (res) fits.push(res);
-  }
-  // with photos, weigh face size and name size together
-  const size = f => f.photos ? f.n * Math.sqrt(f.ph) : f.n;
-  const top = list => list.reduce((a, b) => (!a || size(b) > size(a) ? b : a), null);
-  const withPhotos = fits.filter(f => f.photos && f.n >= 11); // never trade readable names for faces
-  let pool = withPhotos.length ? withPhotos : fits;
-  const withSeats = pool.filter(f => f.seats && f.m >= 7);
-  pool = withSeats.length ? withSeats : pool.filter(f => !f.seats);
-  const best = top(pool), titled = top(pool.filter(f => f.title));
-  return titled && best && size(titled) >= size(best) * .75 ? titled : best;
-}
-function candsBlock(ctx, r, T, L) {
-  const F = fitCands(ctx, r, L.fam !== 'strip');
-  if (!F) return null;
-  return { h: F.total, draw: y => {
-    const x = r.x, w = r.w, rad = F.n * .4;
-    shadowFill(ctx, rrect(x, y, w, F.total, rad), T.card, T.shadow, Math.max(2, F.n * .16));
-    if (F.title) {
-      ctx.fillStyle = T.alt; ctx.beginPath(); ctx.roundRect(x, y, w, F.titleH, [rad, rad, 0, 0]); ctx.fill();
-      const label = state.text.cardTitle.toUpperCase();
-      ctx.font = font('black', F.ts);
-      const tw = ctx.measureText(label).width, ts = tw > w - F.pad * 2 ? F.ts * (w - F.pad * 2) / tw : F.ts;
-      ctx.save(); ctx.font = font('black', ts); ctx.fillStyle = T.altInk; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(label, x + w / 2, y + F.titleH / 2 + ts * .05); ctx.restore();
-    }
-    let cy = y + F.titleH + F.pad;
-    for (let row = 0; row < F.rows; row++) {
-      if (row) {
-        ctx.save(); ctx.strokeStyle = rgba(T.cardInk, .28); ctx.lineWidth = Math.max(1, F.n * .045); ctx.setLineDash([F.n * .2, F.n * .16]);
-        ctx.beginPath(); ctx.moveTo(x + F.pad, cy - F.gapY / 2); ctx.lineTo(x + w - F.pad, cy - F.gapY / 2); ctx.stroke(); ctx.restore();
-      }
-      for (let col = 0; col < F.cols; col++) {
-        const cell = F.cells[row * F.cols + col];
-        if (!cell) continue;
-        const i = row * F.cols + col, rowH = F.rowH[row], px = x + F.pad + col * (F.cellW + F.gapX);
-        let cx, tx, tw, ty, ny;
-        if (F.stack) { // face on top, office and name centered underneath
-          drawCutout(ctx, i, px + (F.cellW - F.pw) / 2, cy, F.pw, F.ph, T);
-          ty = cy + F.ph + F.n * .45;
-          if (cell.sb) drawLines(ctx, cell.sb, font('bold', F.m), F.m, 1.15, px, ty, F.cellW, 'center', rgba(T.cardInk, .72));
-          tw = cell.nb.maxW; cx = px + (F.cellW - (F.ow + F.og + tw)) / 2; tx = cx + F.ow + F.og; ny = ty + cell.sh;
-          drawLines(ctx, cell.nb, font('black', F.n), F.n, 1.02, tx, ny, tw, 'center', T.cardInk);
-        } else {
-          cx = px + F.pw + F.pg; tx = cx + F.ow + F.og; tw = F.cellW - F.pw - F.pg - F.ow - F.og;
-          if (F.photos) drawCutout(ctx, i, px, cy + (rowH - F.ph) / 2, F.pw, F.ph, T);
-          ty = F.photos ? cy + (rowH - cell.th) / 2 : cy;
-          if (cell.sb) drawLines(ctx, cell.sb, font('bold', F.m), F.m, 1.15, tx, ty, tw, 'left', rgba(T.cardInk, .72));
-          ny = ty + cell.sh;
-          drawLines(ctx, cell.nb, font('black', F.n), F.n, 1.02, tx, ny, tw, 'left', T.cardInk);
-        }
-        // a filled-in ballot oval, lined up with the name
-        ctx.save(); ctx.translate(cx + F.ow / 2, ny + F.n * ASC / 2);
-        ctx.fillStyle = T.oval; ctx.beginPath(); ctx.ellipse(F.n * .03, F.n * .02, F.ow * .44, F.oh * .42, -.12, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = T.cardInk; ctx.lineWidth = Math.max(1, F.n * .075);
-        ctx.beginPath(); ctx.ellipse(0, 0, F.ow / 2, F.oh / 2, 0, 0, Math.PI * 2); ctx.stroke();
-        ctx.restore();
-      }
-      cy += F.rowH[row] + F.gapY;
-    }
-  } };
-}
-
-function photoDisc(ctx, cx, cy, d, T) {
-  const ring = Math.max(1.5, d * .045);
-  ctx.fillStyle = T.shadow; ctx.beginPath(); ctx.arc(cx + ring * 1.3, cy + ring * 1.3, d / 2, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = T.accent; ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.fill();
-  drawPhoto(ctx, cx, cy, d - ring * 2, T);
-  if (d >= 90) {
-    const sr = d * .13;
-    shadowFill(ctx, starPath(cx + d * .36, cy - d * .36, sr, -Math.PI / 2 + .2), T.alt, T.shadow === T.alt ? T.accent : T.shadow, Math.max(1, sr * .12));
-  }
-}
-function endBlock(ctx, r, T, L) {
-  const E = state.endorser, gap = Math.min(r.w, r.h) * .07;
-  const items = [
-    { text: E.tag.toUpperCase(), role: 'black', r: .5, min: 7, pill: T.tag, color: T.tagInk, optional: true, maxLines: 1, lh: 1.1, gap: 0 },
-    { text: E.name, role: 'black', r: 1, lh: 1.02, color: T.ink, maxLines: 2, gap: .3 },
-    { text: E.title, role: 'medium', r: .62, min: 8, color: T.ink, optional: true, lh: 1.2, maxLines: 2, gap: .2 },
-    { text: E.quote ? `“${E.quote}”` : '', role: 'medium', r: .6, min: 9, color: T.ink, optional: true, lh: 1.28, gap: .5 },
-  ];
-  if (L.fam === 'strip') {
-    const d = Math.min(r.w, r.h);
-    return { h: d, draw: y => photoDisc(ctx, r.x + r.w / 2, y + d / 2, d, T) };
-  }
-  if (r.h >= r.w * .95) { // photo on top, words underneath
-    const d = Math.min(r.w * .82, r.h * .58), res = fitStack(ctx, items, r.w, r.h - d - gap, Math.min(r.w * .12, 52));
-    return { h: d + (res ? gap + res.total : 0), draw: y => {
-      photoDisc(ctx, r.x + r.w / 2, y + d / 2, d, T);
-      if (res) drawStack(ctx, res, r.x, y + d + gap, 'center');
-    } };
-  }
-  const d = Math.min(r.h * .92, r.w * .42), tw = r.w - d - gap, res = fitStack(ctx, items, tw, r.h, Math.min(tw * .12, 52));
-  const h = Math.max(d, res ? res.total : 0);
-  return { h, draw: y => {
-    photoDisc(ctx, r.x + d / 2, y + h / 2, d, T);
-    if (res) drawStack(ctx, res, r.x + d + gap, y + (h - res.total) / 2, 'left');
-  } };
-}
-
-// the button, plus the polling-place line under it when there's room
-function ctaBlock(ctx, r, T, L) {
-  const text = state.text.cta.trim(), info = L.fam === 'strip' ? '' : state.text.info.trim(), strip = L.fam === 'strip';
-  const build = (s, withInfo) => {
-    const b = wrap(ctx, text, font('black', s), r.w - s * 1.6);
-    if (b.over || b.lines.length > 2) return null;
-    const ph = blockH(b.lines.length, s, 1.05) + s * 1.1, w = b.maxW + s * 1.6;
-    let h = ph, ib = null, is = 0;
-    if (withInfo) {
-      is = s * .46; ib = wrap(ctx, info, font('medium', is), r.w);
-      if (ib.over || ib.lines.length > 2) return null;
-      h += s * .4 + blockH(ib.lines.length, is, 1.25);
-    }
-    return h <= r.h && w <= r.w ? { s, b, ph, h, w, ib, is } : null;
-  };
-  const bare = search(s => build(s, false), 4, Math.min(r.h * .5, 64));
-  const full = info ? search(s => build(s, true), 4, Math.min(r.h * .5, 64)) : null;
-  const F = full && full.is >= 8.5 && bare && full.s >= bare.s * .6 ? full : bare;
-  if (!F) return null;
-  const tall = L.fam === 'tall';
-  return { h: F.h, draw: y => {
-    const x = tall ? r.x + (r.w - F.w) / 2 : r.x;
-    shadowFill(ctx, rrect(x, y, F.w, F.ph, F.ph / 2), T.cta, T.shadow, strip ? Math.max(1.5, F.s * .12) : Math.max(2, F.s * .16));
-    drawLines(ctx, F.b, font('black', F.s), F.s, 1.05, x + F.s * .8, y + F.s * .55, F.w - F.s * 1.6, 'center', T.ctaInk);
-    if (F.ib) drawLines(ctx, F.ib, font('medium', F.is), F.is, 1.25, r.x, y + F.ph + F.s * .4, r.w, tall ? 'center' : 'left', T.ink);
-  } };
-}
-
-function drawSticker(ctx, L, T) {
-  const { cx, cy, d } = L.sticker, R = d / 2;
-  ctx.save(); ctx.translate(cx, cy); ctx.rotate(-.18);
-  shadowFill(ctx, starPath(0, 0, R, 0, 14, .82), T.accent, T.shadow, R * .06);
-  const res = fitStack(ctx, [{ text: state.text.sticker.toUpperCase(), role: 'display', r: 1, lh: 1, color: T.accentInk }], R * 1.4, R * 1.1, R * .5);
+function drawSticker(ctx, S, T) {
+  const R = S.d / 2, fill = T.top === state.colors.yellow ? state.colors.blue : state.colors.yellow, ink = fill === state.colors.blue ? state.colors.white : state.colors.black;
+  ctx.save(); ctx.translate(S.cx, S.cy); ctx.rotate(-.16);
+  ctx.fillStyle = fill; ctx.fill(starPath(0, 0, R, 0, 14, .84));
+  const res = fitStack(ctx, [{ text: state.text.sticker, role: 'heavy', r: 1, lh: 1, color: ink }], R * 1.4, R * 1.1, R * .45);
   if (res) drawStack(ctx, res, -R * .7, -res.total / 2, 'center');
   ctx.restore();
-}
-
-function drawDisclaimer(ctx, L, T) {
-  const r = L.disc, text = state.text.disclaimer.trim();
-  let s = r.h * .66;
-  ctx.font = font('bold', s);
-  const tw = ctx.measureText(text).width, padX = s * .55;
-  if (tw + padX * 2 > r.w) { s *= (r.w - padX * 2) / tw; ctx.font = font('bold', s); }
-  const w = ctx.measureText(text).width + padX * 2, x = L.fam === 'tall' ? r.x + (r.w - w) / 2 : r.x;
-  ctx.fillStyle = state.colors.white; ctx.fillRect(x, r.y, w, r.h);
-  if (T.bg === state.colors.white) { ctx.strokeStyle = state.colors.blue; ctx.lineWidth = 1; ctx.strokeRect(x + .5, r.y + .5, w - 1, r.h - 1); }
-  ctx.fillStyle = state.colors.blue; ctx.textBaseline = 'middle';
-  ctx.fillText(text, x + padX, r.y + r.h / 2 + s * .04);
-  ctx.textBaseline = 'alphabetic';
-}
-
-/* Tall sizes: fit the header and button, give the middle everything left,
-   then spread any spare height evenly between the rows. */
-function placeTall(ctx, L, T) {
-  const r = L.body, gap = L.gap;
-  const hdr = headerBlock(ctx, L.header, T, L), cta = L.cta ? ctaBlock(ctx, L.cta, T, L) : null;
-  const used = (hdr ? hdr.h + gap : 0) + (cta ? cta.h + gap : 0);
-  const mid = { x: r.x, y: r.y, w: r.w, h: r.h - used };
-  const midRows = [];
-  if (L.endorser && L.side) {
-    const [cr, er] = split(mid, 'left', mid.w * .6, gap);
-    const c = candsBlock(ctx, cr, T, L), e = endBlock(ctx, er, T, L), h = Math.max(c?.h || 0, e?.h || 0);
-    midRows.push({ h, draw: y => { c?.draw(y + (h - c.h) / 2); e?.draw(y + (h - e.h) / 2); } });
-  } else if (L.endorser) {
-    const [er, cr] = split(mid, 'top', mid.h * .34, gap);
-    const e = endBlock(ctx, er, T, L);
-    const c = candsBlock(ctx, { ...cr, y: 0, h: mid.h - (e ? e.h + gap : 0) }, T, L);
-    if (e) midRows.push(e);
-    if (c) midRows.push(c);
-  } else { const c = candsBlock(ctx, mid, T, L); if (c) midRows.push(c); }
-  const rows = [hdr, ...midRows, cta].filter(Boolean);
-  const slack = r.h - rows.reduce((a, b) => a + b.h, 0) - gap * (rows.length - 1);
-  const extra = Math.max(0, slack) / (rows.length + 1);
-  let y = r.y + extra;
-  for (const row of rows) { row.draw(y); y += row.h + gap + extra; }
-  if (L.sticker && hdr) L.sticker.cy = r.y + extra + hdr.h * .5;
-}
-// other sizes: each block centered in its own box; header + button centered together
-function placeBoxes(ctx, L, T) {
-  const center = (b, r) => b && b.draw(r.y + (r.h - b.h) / 2);
-  const hdr = L.header && headerBlock(ctx, L.header, T, L), cta = L.cta ? ctaBlock(ctx, L.cta, T, L) : null;
-  if (L.headCol && cta) {
-    const col = L.headCol, h = (hdr ? hdr.h + L.colGap : 0) + cta.h, y = col.y + (col.h - h) / 2;
-    hdr?.draw(y); cta.draw(y + h - cta.h);
-  } else { center(hdr, L.header); if (cta) center(cta, L.cta); }
-  if (L.cands) center(candsBlock(ctx, L.cands, T, L), L.cands);
-  if (L.end) center(endBlock(ctx, L.end, T, L), L.end);
 }
 
 function render(ctx, P, k, editor) {
   ctx.setTransform(k, 0, 0, k, 0, 0);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  const T = themeFor(P), L = layout(P);
-  drawBg(ctx, P, T, L);
-  L.fam === 'tall' ? placeTall(ctx, L, T) : placeBoxes(ctx, L, T);
-  if (L.sticker) drawSticker(ctx, L, T);
-  if (L.disc) drawDisclaimer(ctx, L, T);
+  const T = themeFor(P), L = plan(ctx, P, T);
+  ctx.fillStyle = T.top; ctx.fillRect(0, 0, P.w, P.h);
+  drawPattern(ctx, P, T, L);
+  if (L.band) { ctx.fillStyle = T.band; ctx.fillRect(L.band.x, L.band.y, L.band.w, L.band.h); }
+  L.ops.forEach(f => f());
+  if (L.sticker?.cx) drawSticker(ctx, L.sticker, T);
   if (editor && P.safe && state.guides) {
     const s = P.safe;
     ctx.fillStyle = 'rgba(255,40,40,.16)';
@@ -715,7 +633,7 @@ function drawSingle() {
   const warn = [];
   if (state.sizes[P.key]?.endorser && !state.endorser.photo) warn.push('No endorser photo yet: add one on the Endorser tab.');
   if (usePhotos() && state.candidates.some(c => !c.photo)) warn.push('Some candidates have no photo yet.');
-  if (/\[|candidate (one|two|three|four)|endorser name/i.test(JSON.stringify([state.text, state.candidates, state.endorser.name]))) warn.push('Placeholder text is still in the ad.');
+  if (/\[|endorser name/i.test(JSON.stringify([state.text, state.endorser.name]))) warn.push('Placeholder text is still in the ad.');
   if (!state.sizes[P.key]?.disclaimer || !state.text.disclaimer.trim()) warn.push('No disclaimer on this size.');
   $('#warnings').textContent = warn.join(' ');
 }
@@ -764,9 +682,10 @@ function bindAll() {
 function renderCandFields() {
   const labels = ['Supreme Court', 'Court of Appeals', 'Court of Appeals', 'Court of Appeals'];
   $('#candFields').innerHTML = state.candidates.map((c, i) => `<div class="cand"><b>${i + 1} · ${labels[i]}</b>
-    <label>Name<input type="text" data-bind="candidates.${i}.name"></label>
-    <label>Office<input type="text" data-bind="candidates.${i}.seat"></label>
-    <label>Short office <span class="hint">(for small sizes)</span><input type="text" data-bind="candidates.${i}.short"></label>
+    <div class="row2"><label>Title + first name<input type="text" data-bind="candidates.${i}.prefix"></label>
+    <label>Last name<input type="text" data-bind="candidates.${i}.last"></label></div>
+    <div class="row2"><label>Office line<input type="text" data-bind="candidates.${i}.office"></label>
+    <label>Short office <span class="hint">(small sizes)</span><input type="text" data-bind="candidates.${i}.short"></label></div>
     <div class="cand-photo"><canvas width="120" height="140" data-thumb="${i}"></canvas>
       <div><div class="btn-row"><label class="ghost file-btn sm">${c.photo ? 'Replace photo' : 'Upload photo'}<input type="file" accept="image/*" data-photo="${i}" hidden></label>
         ${c.photo ? `<button class="ghost sm" data-clear="${i}">Remove</button>` : ''}</div>
@@ -781,8 +700,8 @@ function renderCandFields() {
 function drawCandThumbs() {
   const T = themeFor(presetOf(state.size));
   $$('#candFields canvas[data-thumb]').forEach(c => {
-    const ctx = c.getContext('2d'); ctx.clearRect(0, 0, c.width, c.height);
-    drawCutout(ctx, +c.dataset.thumb, 10, 6, 100, 125, T);
+    const ctx = c.getContext('2d'); ctx.fillStyle = T.band; ctx.fillRect(0, 0, c.width, c.height);
+    drawCutout(ctx, +c.dataset.thumb, 10, 8, 100, T.disc, T.bandInk);
   });
 }
 /* keep transparency, trim empty margins so every cutout's shoulders sit on the bottom edge */
@@ -836,9 +755,10 @@ $$('[data-all]').forEach(b => b.onclick = () => {
   save(); renderSizeList(); renderSizeToggles(); redraw();
 });
 function renderThemes() {
-  const { red, white, blue, yellow } = state.colors;
-  const sw = { blue: [blue, white], red: [red, white], yellow: [yellow, blue], white: [white, blue] };
-  $('#themePick').innerHTML = THEMES.map(t => `<button data-theme="${t}" class="${t === state.theme ? 'active' : ''}" style="background:${sw[t][0]};color:${sw[t][1]}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('');
+  $('#themePick').innerHTML = Object.entries(THEMES).map(([k, label]) => {
+    const t = themeFor(null, k);
+    return `<button data-theme="${k}" class="${k === state.theme ? 'active' : ''}" style="background:linear-gradient(${t.top} 55%, ${t.band} 55%);color:${t.ink}"><span>${label}</span></button>`;
+  }).join('');
   $$('#themePick button').forEach(b => b.onclick = () => { state.theme = b.dataset.theme; save(); renderThemes(); redraw(); });
 }
 $('#resetColors').onclick = () => { state.colors = { ...DEFAULT_COLORS }; save(); bindAll(); renderThemes(); redraw(); };
@@ -872,7 +792,8 @@ $('#photoClear').onclick = () => { state.endorser.photo = null; save(); loadPhot
 function drawThumb() {
   const c = $('#photoThumb'), ctx = c.getContext('2d');
   ctx.clearRect(0, 0, c.width, c.height);
-  drawPhoto(ctx, c.width / 2, c.height / 2, c.width, themeFor(presetOf(state.size)));
+  const T = themeFor(presetOf(state.size));
+  drawPhoto(ctx, c.width / 2, c.height / 2, c.width, T.disc, T.ink);
 }
 
 $('#kitLoad').onclick = () => {
