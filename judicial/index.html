@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Down-Ballot Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700;800;900&family=Archivo+Black&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">★</span>
+    <div>
+      <h1>Down-Ballot Studio</h1>
+      <p class="sub">Statewide judicial race ads · every Meta + Google size</p>
+    </div>
+  </div>
+  <div class="view-toggle" role="tablist">
+    <button class="seg active" data-view="single">Editor</button>
+    <button class="seg" data-view="grid">All sizes</button>
+  </div>
+</header>
+
+<main class="app">
+  <!-- Sizes -->
+  <aside class="panel left">
+    <div class="list-head"><b>Sizes</b> <span class="hint">✓ = include in batch export</span></div>
+    <ul id="sizeList" class="size-list"></ul>
+    <div id="customBox" class="custom-box">
+      <b>Custom size</b>
+      <div class="row2">
+        <label>Width (px)<input id="customW" type="number" min="50" max="4000" step="1"></label>
+        <label>Height (px)<input id="customH" type="number" min="50" max="4000" step="1"></label>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Stage -->
+  <section class="stage" id="stageSingle">
+    <div class="canvas-wrap" id="canvasWrap"><canvas id="ad"></canvas></div>
+    <div class="size-info" id="sizeInfo"></div>
+    <div class="warn" id="warnings"></div>
+  </section>
+
+  <section class="stage grid-stage" id="stageGrid" hidden>
+    <p class="muted">Every size at once. Click any ad to edit it.</p>
+    <div class="ad-grid" id="adGrid"></div>
+  </section>
+
+  <!-- Controls -->
+  <aside class="panel right">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="cands">Candidates</button>
+      <button class="tab" data-tab="message">Message</button>
+      <button class="tab" data-tab="endorser">Endorser</button>
+      <button class="tab" data-tab="style">Style</button>
+      <button class="tab" data-tab="export">Export</button>
+    </div>
+
+    <div class="tab-body" data-body="cands">
+      <p class="hint">The office line prints above each name. When a size is too small for the full office, the short version is used. On the tiniest banners only names fit.</p>
+      <div id="candFields"></div>
+      <label>Ballot card title <span class="hint">(dropped when there's no room)</span>
+        <input type="text" data-bind="text.cardTitle">
+      </label>
+    </div>
+
+    <div class="tab-body" data-body="message" hidden>
+      <label>Kicker <span class="hint">(small tag above the headline)</span>
+        <input type="text" data-bind="text.kicker">
+      </label>
+      <label>Headline <span class="hint">(wrap words in *stars* to highlight them)</span>
+        <textarea rows="2" data-bind="text.headline"></textarea>
+      </label>
+      <label class="check"><input type="checkbox" data-bind="upper"> All caps headline</label>
+      <label>Subhead <span class="hint">(dropped on small sizes)</span>
+        <textarea rows="2" data-bind="text.sub"></textarea>
+      </label>
+      <label>Call to action button
+        <input type="text" data-bind="text.cta">
+      </label>
+      <label>Sticker <span class="hint">(starburst on big feed sizes)</span>
+        <input type="text" data-bind="text.sticker">
+      </label>
+      <label>Disclaimer
+        <input type="text" data-bind="text.disclaimer">
+      </label>
+      <p class="hint">Check the exact wording and minimum type size with your compliance contact. Sizes where it's hidden are listed below.</p>
+      <div class="bx-head"><b>Show the disclaimer on</b><span class="bx-links"><button data-all="disclaimer:1">All</button><button data-all="disclaimer:0">None</button></span></div>
+      <div id="discSizes" class="bx-list"></div>
+    </div>
+
+    <div class="tab-body" data-body="endorser" hidden>
+      <div class="photo-row">
+        <canvas id="photoThumb" width="160" height="160"></canvas>
+        <div class="btn-col">
+          <label class="ghost file-btn">Upload photo<input type="file" id="photoFile" accept="image/*" hidden></label>
+          <button id="photoClear" class="ghost">Remove photo</button>
+        </div>
+      </div>
+      <div class="prop"><span>Zoom</span><input type="range" min="1" max="3" step="0.01" data-bind="endorser.zoom"><output data-out="endorser.zoom"></output></div>
+      <div class="prop"><span>Left / right</span><input type="range" min="-1" max="1" step="0.01" data-bind="endorser.x"><output data-out="endorser.x"></output></div>
+      <div class="prop"><span>Up / down</span><input type="range" min="-1" max="1" step="0.01" data-bind="endorser.y"><output data-out="endorser.y"></output></div>
+      <label>Tag <span class="hint">(pill above the name)</span>
+        <input type="text" data-bind="endorser.tag">
+      </label>
+      <label>Endorser name
+        <input type="text" data-bind="endorser.name">
+      </label>
+      <label>Title or role
+        <input type="text" data-bind="endorser.title">
+      </label>
+      <label>Quote <span class="hint">(shown when there's room)</span>
+        <textarea rows="3" data-bind="endorser.quote"></textarea>
+      </label>
+      <div class="bx-head"><b>Show the endorser on</b><span class="bx-links"><button data-all="endorser:big">Large sizes</button><button data-all="endorser:1">All</button><button data-all="endorser:0">None</button></span></div>
+      <div id="endSizes" class="bx-list"></div>
+    </div>
+
+    <div class="tab-body" data-body="style" hidden>
+      <h3>Background</h3>
+      <div id="themePick" class="theme-pick"></div>
+      <label class="check"><input type="checkbox" data-bind="themeAuto"> Mix it up: a different background per size</label>
+      <div class="color-row">
+        <label>Red<input type="color" data-bind="colors.red"></label>
+        <label>White<input type="color" data-bind="colors.white"></label>
+        <label>Blue<input type="color" data-bind="colors.blue"></label>
+        <label>Yellow<input type="color" data-bind="colors.yellow"></label>
+      </div>
+      <button id="resetColors" class="ghost sm">Reset colors</button>
+      <label>Pattern
+        <select data-bind="pattern">
+          <option value="stars">Stars</option>
+          <option value="burst">Sunburst</option>
+          <option value="halftone">Halftone</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" data-bind="stripes"> Wavy flag stripes</label>
+      <label class="check"><input type="checkbox" data-bind="sticker"> Starburst sticker (big feed sizes)</label>
+      <label class="check"><input type="checkbox" data-bind="guides"> Show Stories safe zone (editor only)</label>
+
+      <h3>Font</h3>
+      <p class="hint">In Adobe Fonts, add Roc Grotesk to a web project, add this site's domain (and <code>localhost</code> for local use), then paste the project ID or the embed code here.</p>
+      <div class="kit-row">
+        <input type="text" id="kitInput" placeholder="e.g. abc1def or the &lt;link&gt; embed code">
+        <button id="kitLoad" class="ghost sm">Load</button>
+      </div>
+      <p class="hint" id="fontStatus"></p>
+      <div class="row2">
+        <label>Headline family<input type="text" list="famList" data-bind="font.display"></label>
+        <label>Weight<select data-bind="font.dWeight"><option>500</option><option>700</option><option>800</option><option>900</option></select></label>
+      </div>
+      <label>Body family<input type="text" list="famList" data-bind="font.body"></label>
+      <datalist id="famList"></datalist>
+    </div>
+
+    <div class="tab-body" data-body="export" hidden>
+      <h3>This size</h3>
+      <button id="exportOne" class="primary">Download this size</button>
+      <h3>Batch</h3>
+      <div class="bx-head"><b>Sizes</b> <span id="bxCount" class="hint"></span><span class="bx-links"><button data-all="batch:1">All</button><button data-all="batch:meta">Meta</button><button data-all="batch:google">Google</button><button data-all="batch:0">None</button></span></div>
+      <div id="batchSizes" class="bx-list"></div>
+      <label>Format
+        <select data-bind="exp.format"><option value="png">PNG</option><option value="jpg">JPG</option></select>
+      </label>
+      <label class="check"><input type="checkbox" data-bind="exp.cap"> Keep Google sizes under 150 KB (switches to JPG if needed)</label>
+      <label class="check"><input type="checkbox" data-bind="exp.zip"> Bundle into one .zip</label>
+      <button id="exportBatch" class="primary">Export checked sizes</button>
+      <div id="progress" class="progress" hidden><div></div><span></span></div>
+      <h3>Settings</h3>
+      <div class="btn-col">
+        <button id="saveSettings" class="ghost">Save settings file (.json)</button>
+        <label class="ghost file-btn">Load settings file<input type="file" id="loadSettings" accept="application/json" hidden></label>
+        <button id="resetAll" class="ghost danger">Reset everything</button>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
