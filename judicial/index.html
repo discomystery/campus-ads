@@ -41,12 +41,17 @@
   <!-- Stage -->
   <section class="stage" id="stageSingle">
     <div class="canvas-wrap" id="canvasWrap"><canvas id="ad"></canvas></div>
+    <div class="transport">
+      <button id="playBtn" class="icon-btn" title="Play / pause (space)">❚❚</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0">
+      <span id="timeRead" class="mono">0.0s</span>
+    </div>
     <div class="size-info" id="sizeInfo"></div>
     <div class="warn" id="warnings"></div>
   </section>
 
   <section class="stage grid-stage" id="stageGrid" hidden>
-    <p class="muted">Every size at once. Click any ad to edit it.</p>
+    <p class="muted">Every size at once, finished. Hover an ad to play it; click to edit it.</p>
     <div class="ad-grid" id="adGrid"></div>
   </section>
 
@@ -77,14 +82,8 @@
       <label>Short headline <span class="hint">(used on sizes too small for the full one)</span>
         <input type="text" data-bind="text.short">
       </label>
-      <label>Subhead <span class="hint">(dropped on small sizes)</span>
-        <textarea rows="2" data-bind="text.sub"></textarea>
-      </label>
       <label>Call to action button
         <input type="text" data-bind="text.cta">
-      </label>
-      <label>Polling place line <span class="hint">(under the button when there's room)</span>
-        <input type="text" data-bind="text.info">
       </label>
       <label>Sticker <span class="hint">(starburst on tall feed sizes, if turned on in Style)</span>
         <input type="text" data-bind="text.sticker">
@@ -108,23 +107,20 @@
       <div class="prop"><span>Zoom</span><input type="range" min="1" max="3" step="0.01" data-bind="endorser.zoom"><output data-out="endorser.zoom"></output></div>
       <div class="prop"><span>Left / right</span><input type="range" min="-1" max="1" step="0.01" data-bind="endorser.x"><output data-out="endorser.x"></output></div>
       <div class="prop"><span>Up / down</span><input type="range" min="-1" max="1" step="0.01" data-bind="endorser.y"><output data-out="endorser.y"></output></div>
-      <label>Tag <span class="hint">(pill above the name)</span>
-        <input type="text" data-bind="endorser.tag">
-      </label>
-      <label>Endorser name
+      <label>Endorser name <span class="hint">(shown beside or under the photo when there's room)</span>
         <input type="text" data-bind="endorser.name">
-      </label>
-      <label>Title or role
-        <input type="text" data-bind="endorser.title">
-      </label>
-      <label>Quote <span class="hint">(shown when there's room)</span>
-        <textarea rows="3" data-bind="endorser.quote"></textarea>
       </label>
       <div class="bx-head"><b>Show the endorser on</b><span class="bx-links"><button data-all="endorser:big">Large sizes</button><button data-all="endorser:1">All</button><button data-all="endorser:0">None</button></span></div>
       <div id="endSizes" class="bx-list"></div>
     </div>
 
     <div class="tab-body" data-body="style" hidden>
+      <h3>Motion</h3>
+      <div class="row2">
+        <label>Length (seconds)<input type="number" min="5" max="15" step="0.5" data-bind="duration"></label>
+        <label>Ending<select data-bind="outro"><option value="hold">Hold the finished ad</option><option value="fade">Fade out (loops cleanly)</option></select></label>
+      </div>
+      <p class="hint">The intro takes about 4–5 seconds, then the finished ad holds. Shorter lengths speed the intro up. Google GIFs replay to fill 30 seconds, the most Google allows.</p>
       <h3>Background</h3>
       <div id="themePick" class="theme-pick"></div>
       <label class="check"><input type="checkbox" data-bind="themeAuto"> Mix it up: a different background per size</label>
@@ -168,13 +164,21 @@
 
     <div class="tab-body" data-body="export" hidden>
       <h3>This size</h3>
-      <button id="exportOne" class="primary">Download this size</button>
+      <button id="exportAnim" class="primary">Download animation</button>
+      <button id="exportOne" class="ghost">Download still (finished frame)</button>
+      <p class="hint">Meta sizes save as MP4 video. Google Display sizes save as animated GIF (Google doesn't take video in display slots), squeezed under 150 KB. Video needs Chrome or Edge.</p>
       <h3>Batch</h3>
       <div class="bx-head"><b>Sizes</b> <span id="bxCount" class="hint"></span><span class="bx-links"><button data-all="batch:1">All</button><button data-all="batch:meta">Meta</button><button data-all="batch:google">Google</button><button data-all="batch:0">None</button></span></div>
       <div id="batchSizes" class="bx-list"></div>
-      <label>Format
-        <select data-bind="exp.format"><option value="png">PNG</option><option value="jpg">JPG</option></select>
-      </label>
+      <div class="row2">
+        <label>Export
+          <select data-bind="exp.kind"><option value="anim">Animations (MP4 / GIF)</option><option value="still">Still images</option></select>
+        </label>
+        <label>Still format
+          <select data-bind="exp.format"><option value="png">PNG</option><option value="jpg">JPG</option></select>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" data-bind="exp.stills"> With animations, add a still backup for each Google size</label>
       <label class="check"><input type="checkbox" data-bind="exp.cap"> Keep Google sizes under 150 KB (switches to JPG if needed)</label>
       <label class="check"><input type="checkbox" data-bind="exp.zip"> Bundle into one .zip</label>
       <button id="exportBatch" class="primary">Export checked sizes</button>
@@ -189,6 +193,7 @@
   </aside>
 </main>
 
+<script src="../vendor/mp4-muxer.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

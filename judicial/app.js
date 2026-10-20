@@ -49,9 +49,7 @@ function freshState() {
       kicker: 'Today is Election Day',
       headline: 'Your rights are on the ballot, and *you* could cast the *deciding vote* for *justice*.',
       short: 'Cast the *deciding vote* for *justice*.',
-      sub: 'Missed early voting? There\'s still time. Vote at your assigned polling place, and vote all the way down the ballot.',
       cta: 'Polls open till 7:30 PM',
-      info: 'Find your polling place at vote.nc.gov. In line by 7:30 PM? You can vote.',
       sticker: 'It\'s not too late!',
       disclaimer: 'Paid for by [Committee Name]',
     },
@@ -62,18 +60,15 @@ function freshState() {
       cand('Judge Tobias', 'Hampson', 'for Court of Appeals', 'Court of Appeals'),
       cand('Judge Christine', 'Walczyk', 'for Court of Appeals', 'Court of Appeals'),
     ],
-    endorser: {
-      photo: null, zoom: 1, x: 0, y: 0,
-      tag: 'Endorsed by', name: 'Endorser Name', title: 'Title or organization',
-      quote: "These four will protect our rights. I'm voting for every one of them.",
-    },
+    endorser: { photo: null, zoom: 1, x: 0, y: 0, name: 'Roy Cooper' },
     sizes,
     custom: { w: 600, h: 500 },
     colors: { ...DEFAULT_COLORS },
     theme: 'classic', themeAuto: false,
     pattern: 'none', sticker: false, guides: true,
+    duration: 8, outro: 'hold',
     font: { kit: '', display: 'roc-grotesk-wide', dWeight: '500', hWeight: '800', cond: 'roc-grotesk-condensed', cWeight: '500', body: 'roc-grotesk' },
-    exp: { format: 'png', cap: true, zip: true },
+    exp: { kind: 'anim', format: 'png', cap: true, zip: true, stills: true },
   };
 }
 function merge(base, saved) {
@@ -95,7 +90,7 @@ try {
     const old = JSON.parse(localStorage.getItem('judstudio.v1'));
     if (old) {
       old.candidates?.forEach((c, i) => { if (c?.photo && state.candidates[i]) Object.assign(state.candidates[i], { photo: c.photo, zoom: c.zoom ?? 1, x: c.x ?? 0, y: c.y ?? 0 }); });
-      state = merge(state, { endorser: old.endorser, sizes: old.sizes, custom: old.custom, exp: old.exp, font: { kit: old.font?.kit || '' } });
+      state = merge(state, { endorser: { photo: old.endorser?.photo || null }, sizes: old.sizes, custom: old.custom, font: { kit: old.font?.kit || '' } });
     }
   }
 } catch {}
@@ -169,6 +164,22 @@ function themeFor(P, forced) {
   return { name, ...t };
 }
 
+/* ---------- motion ---------- */
+// NOW is the moment being drawn, in seconds of animation; Infinity draws the finished ad
+let NOW = Infinity;
+const EASE = {
+  out: x => 1 - Math.pow(1 - x, 3),
+  back: x => { const c1 = 1.8, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); },
+};
+const prog = (t0, dur) => clamp((NOW - t0) / dur, 0, 1);
+// scale and fade whatever draw() paints, around a point
+function popAt(ctx, cx, cy, s, alpha, draw) {
+  if (s <= 0 || alpha <= 0) return;
+  ctx.save(); ctx.globalAlpha *= Math.min(1, alpha);
+  if (s !== 1) { ctx.translate(cx, cy); ctx.scale(s, s); ctx.translate(-cx, -cy); }
+  draw(); ctx.restore();
+}
+
 /* ---------- text: wrapping and fitting ---------- */
 // "for *justice*." -> words made of segments; starred segments get the heavy font and accent color
 function words(text) {
@@ -185,7 +196,7 @@ function words(text) {
 function wrap(ctx, text, f, maxW, fHi) {
   ctx.font = f;
   const space = ctx.measureText(' ').width, lines = [];
-  let over = false;
+  let over = false, count = 0;
   for (const para of String(text).split('\n')) {
     let line = [], lw = 0;
     for (const segs of words(para)) {
@@ -193,30 +204,45 @@ function wrap(ctx, text, f, maxW, fHi) {
       const ww = segs.reduce((a, s) => a + s.w, 0);
       if (ww > maxW + .5) over = true;
       if (line.length && lw + space + ww > maxW) { lines.push({ words: line, w: lw }); line = []; lw = 0; }
-      lw += (line.length ? space : 0) + ww; line.push({ segs, w: ww });
+      lw += (line.length ? space : 0) + ww; line.push({ segs, w: ww }); count++;
     }
     if (line.length) lines.push({ words: line, w: lw });
   }
-  return { lines, over, space, maxW: lines.reduce((a, l) => Math.max(a, l.w), 0) };
+  return { lines, over, space, count, maxW: lines.reduce((a, l) => Math.max(a, l.w), 0) };
 }
 const ASC = .76; // cap height-ish, as a share of font size
 const blockH = (n, size, lh) => n ? size * (1 + (n - 1) * lh) : 0;
-function drawLines(ctx, b, f, size, lh, x, y, w, align, color, hi) {
+const WORD_STEP = .075; // seconds between words as a headline builds
+/* With anim, words arrive one after another: plain words rise into place,
+   highlighted ones pop in a little larger and settle. */
+function drawLines(ctx, b, f, size, lh, x, y, w, align, color, hi, anim) {
   ctx.textBaseline = 'alphabetic';
+  let n = 0;
   b.lines.forEach((line, i) => {
     let cx = align === 'center' ? x + (w - line.w) / 2 : align === 'right' ? x + w - line.w : x;
     const base = y + size * ASC + i * size * lh;
     line.words.forEach(word => {
-      word.segs.forEach(s => {
-        const h = s.hi && hi;
-        ctx.font = h ? hi.font : f; ctx.fillStyle = h ? hi.color : color;
-        ctx.fillText(s.t, cx, base); cx += s.w;
-      });
-      cx += b.space;
+      const p = anim ? prog(anim.t0 + n * WORD_STEP, .5) : 1, isHi = hi && word.segs.some(s => s.hi);
+      n++;
+      if (p > 0) {
+        ctx.save(); ctx.globalAlpha *= Math.min(1, p * 1.6);
+        if (p < 1) {
+          if (isHi) { const s = .3 + .7 * EASE.back(p), mx = cx + word.w / 2, my = base - size * .35; ctx.translate(mx, my); ctx.scale(s, s); ctx.translate(-mx, -my); }
+          else ctx.translate(0, (1 - EASE.out(p)) * size * .6);
+        }
+        let sx = cx;
+        word.segs.forEach(s => {
+          const h = s.hi && hi;
+          ctx.font = h ? hi.font : f; ctx.fillStyle = h ? hi.color : color;
+          ctx.fillText(s.t, sx, base); sx += s.w;
+        });
+        ctx.restore();
+      }
+      cx += word.w + b.space;
     });
   });
 }
-// binary search the biggest value for which build() returns a layout
+// binary search the biggest value for which build() returns a layout (build(lo) must fit)
 function search(build, lo, hi) {
   let best = build(lo);
   if (!best) return null;
@@ -253,16 +279,26 @@ function fitStack(ctx, items, w, h, maxBase) {
     use = use.filter((_, i) => i !== drop);
   }
 }
-function drawStack(ctx, res, x, y, align) {
+// seconds a stack takes to build: pills pop, then text arrives word by word
+const stackDur = res => res ? res.out.reduce((a, o) => a + (o.it.pill ? .2 : o.b.count * WORD_STEP + .15), 0) + .35 : 0;
+function drawStack(ctx, res, x, y, align, t0) {
   if (!res) return;
+  let t = t0;
   for (const o of res.out) {
     y += o.gap;
     const it = o.it, hi = it.hi ? { color: it.hi, font: o.fh } : null;
     if (it.pill) {
-      const pw = o.b.maxW + o.pad * 2, px = align === 'center' ? x + (res.w - pw) / 2 : x;
-      ctx.fillStyle = it.pill; ctx.beginPath(); ctx.roundRect(px, y, pw, o.h, o.h / 2); ctx.fill();
-      drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, px + o.pad, y + o.size * .35, pw - o.pad * 2, 'center', it.color, hi);
-    } else drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, x, y, res.w, align, it.color, hi);
+      const pw = o.b.maxW + o.pad * 2, px = align === 'center' ? x + (res.w - pw) / 2 : x, yy = y;
+      const p = t0 == null ? 1 : prog(t, .45);
+      popAt(ctx, px + pw / 2, yy + o.h / 2, EASE.back(p), p * 2, () => {
+        ctx.fillStyle = it.pill; ctx.beginPath(); ctx.roundRect(px, yy, pw, o.h, o.h / 2); ctx.fill();
+        drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, px + o.pad, yy + o.size * .35, pw - o.pad * 2, 'center', it.color, hi);
+      });
+      t += .2;
+    } else {
+      drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, x, y, res.w, align, it.color, hi, t0 == null ? null : { t0: t });
+      t += o.b.count * WORD_STEP + .15;
+    }
     y += o.h;
   }
 }
@@ -305,7 +341,8 @@ function drawPhoto(ctx, cx, cy, d, ring, ink) {
   ctx.restore();
 }
 /* Candidate cutouts (transparent PNGs, shoulders up) stand on a colored disc
-   with the head popping out over the top of it, like the literature. */
+   with the head popping out over the top of it, like the literature. rise
+   (0..1) slides the photo up out of the disc as it animates in. */
 const candImgs = [];
 function loadCandPhotos() {
   state.candidates.forEach((c, i) => {
@@ -318,12 +355,14 @@ function loadCandPhotos() {
   drawCandThumbs(); redraw();
 }
 const POP = 1.12; // cutout box height as a multiple of the disc diameter
-function drawCutout(ctx, i, x, y, d, disc, ink) {
+function drawCutout(ctx, i, x, y, d, disc, ink, rise = 1) {
   const c = state.candidates[i], img = candImgs[i]?.complete ? candImgs[i] : null;
-  const h = d * POP, R = d / 2, cx = x + R, cy = y + h - R;
+  const h = d * POP, R = d / 2, cx = x + R, cy = y + h - R, dy = (1 - EASE.out(rise)) * h * .95;
   ctx.fillStyle = disc; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  if (rise <= 0) return;
   ctx.save();
   ctx.beginPath(); ctx.rect(x - R * .15, y, d + R * .3, cy - y); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+  ctx.translate(0, dy);
   if (img) {
     // fit by height so the top of the head touches the top of the box at zoom 1
     const s = h * c.zoom / img.height, iw = img.width * s, ih = img.height * s;
@@ -337,59 +376,63 @@ function drawCutout(ctx, i, x, y, d, disc, ink) {
 }
 
 /* ---------- blocks ---------- */
-// Every block is fitted to a width and height first and reports its natural
-// height (and width), then is drawn wherever the layout settles it.
+// Every block is measured once (with MC, a scratch context) and reports its
+// natural height, width and how long it takes to animate in. draw(y, t0)
+// paints it on DC, the context being rendered, starting its motion at t0.
+const MC = document.createElement('canvas').getContext('2d');
+let DC = MC;
 const usePhotos = () => state.candPhotos;
+const minText = P => Math.max(10.5, Math.min(P.w, P.h) * .018); // nothing smaller than this gets drawn
 
-function headerBlock(ctx, x, w, h, T, align, P, small) {
+function headerBlock(x, w, h, T, align, P, small) {
   const t = state.text, m = Math.min(P.w, P.h);
-  const make = head => fitStack(ctx, [
-    !small && { text: t.kicker.toUpperCase(), role: 'condBold', r: .5, cap: w * .045 + 8, min: 9, pill: T.kick, color: T.kickInk, maxLines: 1, lh: 1, gap: 0 },
+  const make = head => fitStack(MC, [
+    !small && { text: t.kicker.toUpperCase(), role: 'condBold', r: .5, cap: w * .045 + 8, min: minText(P), pill: T.kick, color: T.kickInk, maxLines: 1, lh: 1, gap: 0, optional: true },
     { text: head, role: 'head', hiRole: 'heavy', r: 1, lh: 1.04, color: T.ink, hi: T.hi, gap: .42 },
-    !small && { text: t.sub, role: 'medium', r: .4, cap: w * .03 + 8, min: 9, color: T.ink, optional: true, lh: 1.3, gap: .5 },
-  ], w, h, Math.min(w * .1, 110));
+  ], w, h, Math.min(w * .1, 120));
   // the full line from the literature where it reads well; the short one on small sizes
   const long = t.headline.trim() ? make(t.headline) : null, short = t.short.trim() ? make(t.short) : null;
-  const res = long && (!short || long.s >= Math.max(15, m * .042)) ? long : short || long;
-  return res && { h: res.total, w: res.maxW, draw: y => drawStack(ctx, res, x, y, align) };
+  const res = long && (!short || long.s >= Math.max(16, m * .045)) ? long : short || long;
+  if (!res || res.out.find(o => o.it.role === 'head').size < minText(P)) return null; // too small to read: leave it off
+  return { h: res.total, w: res.maxW, dur: stackDur(res), draw: (y, t0) => drawStack(DC, res, x, y, align, t0) };
 }
 
 /* The four judges: a cutout on a disc, then "Justice Anita" / EARLS / "for Supreme Court".
    Tries 4 across, 2x2 and one column; photos win when they fit with readable
    names, then the office line, then the first-name line, then the biggest size. */
-function lineupBlock(ctx, x, w, h, T, ink) {
-  const C = state.candidates;
-  const fits = [];
+const JUDGE_STEP = .22;
+function lineupBlock(x, w, h, T, ink, P) {
+  const C = state.candidates, minP = minText(P), fits = [];
   for (const cols of [4, 2, 1]) {
     if (cols === 1 && w > 260) continue;
     const gx = w * (cols === 4 ? .03 : .07), cw = (w - gx * (cols - 1)) / cols, rows = Math.ceil(C.length / cols);
     // biggest last-name size that fits the column
-    const nMax = search(n => C.every(c => !wrap(ctx, c.last, font('heavy', n), cw).over) ? n : null, 4, 260);
+    const nMax = search(n => C.every(c => !wrap(MC, c.last, font('heavy', n), cw).over) ? n : null, 4, 260);
     if (!nMax) continue;
     for (const photos of usePhotos() ? [true, false] : [false]) for (const pre of [true, false]) for (const off of [true, false]) {
       const build = (d, n) => {
         const p = n * .56;
-        if (n > nMax + .01 || ((pre || off) && p < 8)) return null;
-        if (photos && (d > cw * .96 || n < 10)) return null;
-        const pb = pre ? C.map(c => wrap(ctx, c.prefix, font('cond', p), cw)) : null;
+        if (n > nMax + .01 || ((pre || off) && p < minP)) return null;
+        if (photos && (d > cw * .96 || n < 11)) return null;
+        const pb = pre ? C.map(c => wrap(MC, c.prefix, font('cond', p), cw)) : null;
         if (pb && pb.some(b => b.over || b.lines.length > 2)) return null;
         let ob = null;
         if (off) {
-          const mode = (k, ml) => { const o = C.map(c => wrap(ctx, (c[k] || c.office || c.short || '').trim(), font('cond', p), cw)); return o.every(b => !b.over && b.lines.length <= ml) ? o : null; };
+          const mode = (k, ml) => { const o = C.map(c => wrap(MC, (c[k] || c.office || c.short || '').trim(), font('cond', p), cw)); return o.every(b => !b.over && b.lines.length <= ml) ? o : null; };
           ob = mode('office', 1) || mode('short', 1) || mode('office', 2) || mode('short', 2);
           if (!ob) return null;
         }
         const ph = photos ? d * POP : 0;
         const cells = C.map((c, i) => {
           const pl = pb ? pb[i].lines.length : 0, ol = ob ? ob[i].lines.length : 0;
-          return { pl, ol, h: ph + (photos ? n * .28 : 0) + (pl ? blockH(pl, p, 1.05) + p * .2 : 0) + n * .98 + (ol ? p * .25 + blockH(ol, p, 1.05) : 0) };
+          return { h: ph + (photos ? n * .28 : 0) + (pl ? blockH(pl, p, 1.05) + p * .2 : 0) + n * .98 + (ol ? p * .25 + blockH(ol, p, 1.05) : 0) };
         });
         const rowH = []; for (let r = 0; r < rows; r++) rowH.push(Math.max(...cells.slice(r * cols, r * cols + cols).map(c => c.h)));
         const gy = n * (photos ? .9 : .7), total = rowH.reduce((a, b) => a + b, 0) + gy * (rows - 1);
         return total <= h ? { cols, gx, cw, rows, rowH, gy, total, d: photos ? d : 0, ph, n, p, pb, ob, photos, pre, off } : null;
       };
       // search() needs its low end to fit, so start where the smallest allowed text is
-      const nLo = pre || off ? 8 / .56 : 6;
+      const nLo = Math.max(pre || off ? minP / .56 : 6, photos ? 11 : 0);
       const res = photos ? search(d => build(d, Math.min(nMax, d * .25)), Math.max(40, nLo / .25), Math.min(cw * .96, h))
         : search(n => build(0, n), nLo, nMax);
       if (res) fits.push(res);
@@ -397,88 +440,99 @@ function lineupBlock(ctx, x, w, h, T, ink) {
   }
   if (!fits.length) return null;
   const rank = f => (f.photos ? 4 : 0) + (f.off ? 2 : 0) + (f.pre ? 1 : 0);
-  const top = Math.max(...fits.map(rank));
-  const F = fits.filter(f => rank(f) === top).reduce((a, b) => ((b.photos ? b.d * b.n : b.n) > (a.photos ? a.d * a.n : a.n) ? b : a));
+  const best = Math.max(...fits.map(rank));
+  const F = fits.filter(f => rank(f) === best).reduce((a, b) => ((b.photos ? b.d * b.n : b.n) > (a.photos ? a.d * a.n : a.n) ? b : a));
   const width = F.cols * F.cw + (F.cols - 1) * F.gx;
-  return { h: F.total, w: width, bandTop: F.photos ? F.ph - F.d * .7 : -F.n * .6, draw: y => {
+  return { h: F.total, w: width, bandTop: F.photos ? F.ph - F.d * .7 : -F.n * .6, dur: (C.length - 1) * JUDGE_STEP + 1, draw: (y, t0 = -1e9) => {
+    const ctx = DC;
     let cy = y;
     for (let r = 0; r < F.rows; r++) {
       for (let col = 0; col < F.cols; col++) {
         const i = r * F.cols + col; if (i >= C.length) continue;
-        const cx = x + (w - width) / 2 + col * (F.cw + F.gx);
+        const cx = x + (w - width) / 2 + col * (F.cw + F.gx), mid = cx + F.cw / 2, t = t0 + i * JUDGE_STEP;
         let ty = cy;
-        if (F.photos) { drawCutout(ctx, i, cx + (F.cw - F.d) / 2, cy, F.d, T.disc, ink); ty += F.ph + F.n * .28; }
-        if (F.pb) { drawLines(ctx, F.pb[i], font('cond', F.p), F.p, 1.05, cx, ty, F.cw, 'center', ink); ty += blockH(F.pb[i].lines.length, F.p, 1.05) + F.p * .2; }
-        ctx.font = font('heavy', F.n); ctx.fillStyle = ink; ctx.textAlign = 'center';
-        ctx.fillText(C[i].last, cx + F.cw / 2, ty + F.n * ASC); ctx.textAlign = 'left';
+        if (F.photos) {
+          // the disc pops, then the judge rises up out of it
+          const dx = cx + (F.cw - F.d) / 2, s = EASE.back(prog(t, .45));
+          popAt(ctx, dx + F.d / 2, cy + F.ph - F.d / 2, s, 1, () => drawCutout(ctx, i, dx, cy, F.d, T.disc, ink, prog(t + .15, .6)));
+          ty += F.ph + F.n * .28;
+        }
+        const fade = (t1, dy, draw) => { const p = prog(t1, .35); if (p > 0) { ctx.save(); ctx.globalAlpha *= p; ctx.translate(0, (1 - EASE.out(p)) * dy); draw(); ctx.restore(); } };
+        if (F.pb) { const yy = ty; fade(t + .5, F.p, () => drawLines(ctx, F.pb[i], font('cond', F.p), F.p, 1.05, cx, yy, F.cw, 'center', ink)); ty += blockH(F.pb[i].lines.length, F.p, 1.05) + F.p * .2; }
+        // the last name lands: drops in big and settles
+        const pn = prog(t + .35, .4), ny = ty;
+        popAt(ctx, mid, ny + F.n * .4, 1.5 - .5 * EASE.out(pn), pn * 2, () => {
+          ctx.font = font('heavy', F.n); ctx.fillStyle = ink; ctx.textAlign = 'center';
+          ctx.fillText(C[i].last, mid, ny + F.n * ASC); ctx.textAlign = 'left';
+        });
         ty += F.n * .98;
-        if (F.ob) drawLines(ctx, F.ob[i], font('cond', F.p), F.p, 1.05, cx, ty + F.p * .25, F.cw, 'center', ink);
+        if (F.ob) { const yy = ty + F.p * .25; fade(t + .6, -F.p, () => drawLines(ctx, F.ob[i], font('cond', F.p), F.p, 1.05, cx, yy, F.cw, 'center', ink)); }
       }
       cy += F.rowH[r] + F.gy;
     }
   } };
 }
 
-// endorser: 'row' = photo beside the words, 'stack' = photo above them
-function endBlock(ctx, x, w, h, T, ink, style) {
-  const E = state.endorser, gap = Math.min(w, h) * .08;
-  const items = [
-    { text: E.tag.toUpperCase(), role: 'condBold', r: .55, min: 8, color: ink, optional: true, maxLines: 1, lh: 1, gap: 0 },
-    { text: E.name, role: 'heavy', r: 1, lh: 1.02, color: ink, maxLines: 2, gap: .25 },
-    { text: E.title, role: 'cond', r: .66, min: 8.5, color: ink, optional: true, lh: 1.1, maxLines: 2, gap: .2 },
-    { text: E.quote ? `“${E.quote}”` : '', role: 'medium', r: .55, min: 9, color: ink, optional: true, lh: 1.3, gap: .5 },
-  ];
+// endorser: face and name only; 'row' = name beside the photo, 'stack' = under it
+function endBlock(x, w, h, T, ink, style, P) {
+  const name = state.endorser.name.trim(), gap = Math.min(w, h) * .08;
+  const items = [{ text: name, role: 'heavy', r: 1, lh: 1.02, color: ink, maxLines: 2 }];
+  const ring = T.disc;
   if (style === 'stack') {
-    const d = Math.min(w * .8, h * .55), res = fitStack(ctx, items, w, h - d - gap, Math.min(w * .13, 46));
-    return { h: d + (res ? gap + res.total : 0), w, draw: y => {
-      drawPhoto(ctx, x + w / 2, y + d / 2, d, T.disc, ink);
-      if (res) drawStack(ctx, res, x, y + d + gap, 'center');
+    const d = Math.min(w * .85, h * .7), res = name ? fitStack(MC, items, w, h - d - gap, Math.min(w * .12, d * .3)) : null;
+    const textOk = res && res.s >= minText(P);
+    return { h: d + (textOk ? gap + res.total : 0), w, dur: 1, draw: (y, t0 = -1e9) => {
+      const ctx = DC, p = prog(t0, .5);
+      popAt(ctx, x + w / 2, y + d / 2, EASE.back(p), p * 2, () => drawPhoto(ctx, x + w / 2, y + d / 2, d, ring, ink));
+      if (textOk) drawStack(ctx, res, x, y + d + gap, 'center', t0 + .3);
     } };
   }
-  const d = Math.min(h, w * .3), tw = Math.min(w - d - gap, w * .62), res = fitStack(ctx, items, tw, h, Math.min(tw * .09, 44));
-  const bh = Math.max(d * .85, res ? res.total : 0), dd = Math.min(d, Math.max(bh, d * .85)), gw = dd + gap + (res ? res.maxW : 0);
-  return { h: Math.max(dd, bh), w: gw, draw: y => {
-    const H = Math.max(dd, bh), x0 = x + (w - gw) / 2;
-    drawPhoto(ctx, x0 + dd / 2, y + H / 2, dd, T.disc, ink);
-    if (res) drawStack(ctx, { ...res, w: res.maxW }, x0 + dd + gap, y + (H - res.total) / 2, 'left');
+  const d = Math.min(h, w * .3), tw = Math.min(w - d - gap, w * .6), res = name ? fitStack(MC, items, tw, h * .6, Math.min(tw * .12, d * .3)) : null;
+  const textOk = res && res.s >= minText(P), gw = d + (textOk ? gap + res.maxW : 0);
+  return { h: d, w: gw, dur: 1, draw: (y, t0 = -1e9) => {
+    const ctx = DC, x0 = x + (w - gw) / 2, p = prog(t0, .5);
+    popAt(ctx, x0 + d / 2, y + d / 2, EASE.back(p), p * 2, () => drawPhoto(ctx, x0 + d / 2, y + d / 2, d, ring, ink));
+    if (textOk) drawStack(ctx, { ...res, w: res.maxW }, x0 + d + gap, y + (d - res.total) / 2, 'left', t0 + .3);
   } };
 }
 
-// the button, plus the polling-place line under it when there's room
-function ctaBlock(ctx, x, w, h, fill, fillInk, ink, align, withInfo = true) {
-  const text = state.text.cta.trim(), info = withInfo ? state.text.info.trim() : '';
+// the button: stretches open, then gives a gentle pulse every couple of seconds
+function ctaBlock(x, w, h, fill, fillInk, align, P) {
+  const text = state.text.cta.trim();
   if (!text) return null;
-  const build = (s, inc) => {
-    const b = wrap(ctx, text, font('heavy', s), w - s * 1.8);
+  const build = s => {
+    const b = wrap(MC, text, font('heavy', s), w - s * 1.8);
     if (b.over || b.lines.length > 2) return null;
     const ph = blockH(b.lines.length, s, 1.08) + s * 1.1, pw = b.maxW + s * 1.8;
-    let tot = ph, ib = null, is = 0;
-    if (inc) {
-      is = s * .5; ib = wrap(ctx, info, font('medium', is), w);
-      if (ib.over || ib.lines.length > 2) return null;
-      tot += s * .45 + blockH(ib.lines.length, is, 1.25);
-    }
-    return tot <= h && pw <= w ? { s, b, ph, pw, h: tot, ib, is } : null;
+    return ph <= h && pw <= w ? { s, b, ph, pw } : null;
   };
-  const bare = search(s => build(s, false), 4, Math.min(h * .5, 52));
-  const full = info ? search(s => build(s, true), 4, Math.min(h * .5, 52)) : null;
-  const F = full && full.is >= 9 && bare && full.s >= bare.s * .6 ? full : bare;
-  if (!F) return null;
-  return { h: F.h, w: Math.max(F.pw, F.ib ? F.ib.maxW : 0), draw: y => {
-    const px = align === 'center' ? x + (w - F.pw) / 2 : x;
-    ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(px, y, F.pw, F.ph, F.ph / 2); ctx.fill();
-    drawLines(ctx, F.b, font('heavy', F.s), F.s, 1.08, px + F.s * .9, y + F.s * .55, F.pw - F.s * 1.8, 'center', fillInk);
-    if (F.ib) drawLines(ctx, F.ib, font('medium', F.is), F.is, 1.25, x, y + F.ph + F.s * .45, align === 'center' ? w : F.ib.maxW, align, ink);
+  const F = search(build, 4, Math.min(h * .5, 60));
+  if (!F || F.s < minText(P) * .9) return null;
+  return { h: F.ph, w: F.pw, dur: .9, draw: (y, t0 = -1e9) => {
+    const ctx = DC, px = align === 'center' ? x + (w - F.pw) / 2 : x, cx = px + F.pw / 2, cy = y + F.ph / 2;
+    const p = prog(t0, .55), since = NOW - t0 - 1.4;
+    const pulse = Number.isFinite(since) && since > 0 ? 1 + .045 * Math.pow(Math.max(0, Math.sin(since * Math.PI / 1.1)), 6) : 1;
+    if (p <= 0) return;
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(pulse, pulse); ctx.translate(-cx, -cy);
+    const pw = Math.max(F.ph, F.pw * EASE.back(p)), sx = align === 'center' ? cx - pw / 2 : px;
+    ctx.globalAlpha *= Math.min(1, p * 3);
+    ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(sx, y, pw, F.ph, F.ph / 2); ctx.fill();
+    const tp = prog(t0 + .3, .3);
+    if (tp > 0) { ctx.globalAlpha *= tp; drawLines(ctx, F.b, font('heavy', F.s), F.s, 1.08, px + F.s * .9, y + F.s * .55, F.pw - F.s * 1.8, 'center', fillInk); }
+    ctx.restore();
   } };
 }
 
-function discBlock(ctx, x, w, size, ink, align) {
+function discBlock(x, w, size, ink, align) {
   const text = state.text.disclaimer.trim();
-  ctx.font = font('medium', size);
-  const tw = ctx.measureText(text).width, s = tw > w ? size * w / tw : size;
-  return { h: s * 1.1, w: Math.min(tw, w), draw: y => {
+  MC.font = font('medium', size);
+  const tw = MC.measureText(text).width, s = tw > w ? size * w / tw : size;
+  return { h: s * 1.1, w: Math.min(tw, w), dur: .5, draw: (y, t0 = -1e9) => {
+    const ctx = DC;
+    ctx.save(); ctx.globalAlpha *= prog(t0, .5);
     ctx.font = font('medium', s); ctx.fillStyle = ink; ctx.textBaseline = 'alphabetic';
-    ctx.textAlign = align; ctx.fillText(text, align === 'center' ? x + w / 2 : x, y + s * ASC); ctx.textAlign = 'left';
+    ctx.textAlign = align; ctx.fillText(text, align === 'center' ? x + w / 2 : x, y + s * ASC);
+    ctx.restore();
   } };
 }
 
@@ -495,83 +549,103 @@ function spread(rows, y0, h, gap) {
   let y = y0 + extra;
   return rows.map(r => { const at = y; y += r.h + gap + extra; return at; });
 }
-/* Works out where every block goes. Returns the band (yellow strip) and the
-   draw calls; render() paints the background and band first, then these. */
-function plan(ctx, P, T) {
+/* Works out where every block goes and when it animates in. Returns the
+   band (the colored strip the judges stand in), the blocks with their
+   positions and start times, and when the intro ends. Plans are cached:
+   fitting text is the slow part, and video export draws the same plan
+   hundreds of times. */
+const planCache = new Map();
+let planVersion = 0;
+function plan(P, T) {
+  const key = `${P.key}|${P.w}x${P.h}|${T.name}|${planVersion}`;
+  if (planCache.has(key)) return planCache.get(key);
+  if (planCache.size > 60) planCache.clear();
+  const L = makePlan(P, T);
+  planCache.set(key, L);
+  return L;
+}
+function makePlan(P, T) {
   const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {};
   const pad = Math.round(clamp(m * .06, 5, 64));
   const r = P.safe ? { x: W * P.safe.l, y: H * P.safe.t, w: W * (1 - P.safe.l - P.safe.r), h: H * (1 - P.safe.t - P.safe.b) }
     : { x: pad, y: pad, w: W - pad * 2, h: H - pad * 2 };
-  const fam = family(P, r), ops = [], put = (b, y) => b && ops.push(() => b.draw(y));
-  const endOn = !!cfg.endorser, discOn = cfg.disclaimer && state.text.disclaimer.trim();
-  let band = null, sticker = null;
+  const fam = family(P, r), items = [], put = (b, y, t0) => b && items.push({ b, y, t0 });
+  const endOn = !!cfg.endorser && state.endorser.name.trim(), discOn = cfg.disclaimer && state.text.disclaimer.trim();
+  let band = null, sticker = null, t = .35; // the band sweeps in first, then everything follows in order
 
   if (fam === 'tall' || fam === 'wide') {
-    const gap = Math.round(m * (fam === 'tall' ? .035 : .03));
-    const disc = discOn ? discBlock(ctx, r.x, r.w, clamp(H * .02, 10, 24), T.bandInk, 'center') : null;
+    const gap = Math.round(m * (fam === 'tall' ? .04 : .035));
+    const disc = discOn ? discBlock(r.x, r.w, clamp(H * .02, 10.5, 24), T.bandInk, 'center') : null;
     const avail = r.h - (disc ? disc.h + gap * .6 : 0);
     let hdr, endTop = null;
     if (fam === 'tall') {
       let hw = r.w;
       if (state.sticker && state.text.sticker.trim() && r.w >= 560) { const d = Math.min(avail * .2, r.w * .26); sticker = { d }; hw = r.w - d - gap; }
-      hdr = headerBlock(ctx, r.x, hw, avail * (endOn ? .27 : .32), T, sticker ? 'left' : 'center', P, false);
+      hdr = headerBlock(r.x, hw, avail * (endOn ? .27 : .32), T, sticker ? 'left' : 'center', P, false);
     } else {
-      const sw = endOn ? r.w * .36 : 0;
-      hdr = headerBlock(ctx, r.x, r.w - sw - (sw ? gap : 0), avail * .36, T, 'left', P, false);
-      if (endOn) endTop = endBlock(ctx, r.x + r.w - sw, sw, avail * .36, T, T.ink, 'row');
+      const sw = endOn ? r.w * .3 : 0;
+      hdr = headerBlock(r.x, r.w - sw - (sw ? gap : 0), avail * .36, T, 'left', P, false);
+      if (endOn) endTop = endBlock(r.x + r.w - sw, sw, avail * .3, T, T.ink, 'row', P);
     }
-    const cta = ctaBlock(ctx, r.x, r.w, clamp(avail * (fam === 'tall' ? .13 : .16), 30, 170), T.cta, T.ctaInk, T.bandInk, 'center');
-    const endRow = fam === 'tall' && endOn ? endBlock(ctx, r.x, r.w, avail * .17, T, T.bandInk, r.w < 420 ? 'stack' : 'row') : null;
-    const top = endTop ? { h: Math.max(hdr?.h || 0, endTop.h), draw: y => { const hh = Math.max(hdr?.h || 0, endTop.h); hdr?.draw(y + (hh - hdr.h) / 2); endTop.draw(y + (hh - endTop.h) / 2); } } : hdr;
+    const cta = ctaBlock(r.x, r.w, clamp(avail * .1, 30, 130), T.cta, T.ctaInk, 'center', P);
+    const endRow = fam === 'tall' && endOn ? endBlock(r.x, r.w, avail * .14, T, T.bandInk, r.w < 420 ? 'stack' : 'row', P) : null;
+    const topH = Math.max(hdr?.h || 0, endTop?.h || 0);
+    const top = endTop ? { h: topH } : hdr;
     const used = [top, cta, endRow].filter(Boolean);
-    const lu = lineupBlock(ctx, r.x, r.w, avail - used.reduce((a, b) => a + b.h, 0) - gap * used.length - avail * .04, T, T.bandInk);
-    const rows = [top, lu, endRow, cta].filter(Boolean), ys = spread(rows, r.y, avail, gap);
-    rows.forEach((row, i) => put(row, ys[i]));
-    if (lu) { const ly = ys[rows.indexOf(lu)] + lu.bandTop; band = { x: 0, y: ly, w: W, h: H - ly }; }
-    else if (cta) { const cy = ys[rows.indexOf(cta)] - gap; band = { x: 0, y: cy, w: W, h: H - cy }; }
-    if (disc) put(disc, r.y + r.h - disc.h);
-    if (sticker && hdr) sticker = { d: sticker.d, cx: r.x + r.w - sticker.d / 2, cy: ys[0] + top.h / 2 };
+    const lu = lineupBlock(r.x, r.w, avail - used.reduce((a, b) => a + b.h, 0) - gap * used.length - avail * .04, T, T.bandInk, P);
+    const rows = [top, lu, endRow, cta].filter(Boolean), ys = spread(rows, r.y, avail, gap), yOf = b => ys[rows.indexOf(b)];
+    if (hdr) { put(hdr, endTop ? yOf(top) + (topH - hdr.h) / 2 : yOf(hdr), t); t += hdr.dur; }
+    if (sticker && hdr) { sticker = { ...sticker, cx: r.x + r.w - sticker.d / 2, cy: yOf(top) + topH / 2, t0: t - .2 }; }
+    if (lu) { put(lu, yOf(lu), t - .25); t += lu.dur - .25; }
+    if (endTop) { put(endTop, yOf(top) + (topH - endTop.h) / 2, t - .3); t += endTop.dur - .3; }
+    if (endRow) { put(endRow, yOf(endRow), t - .3); t += endRow.dur - .3; }
+    if (cta) { put(cta, yOf(cta), t - .2); t += cta.dur - .2; }
+    if (lu) { const ly = yOf(lu) + lu.bandTop; band = { x: 0, y: ly, w: W, h: H - ly, from: 'bottom' }; }
+    else if (cta) { const cy = yOf(cta) - gap; band = { x: 0, y: cy, w: W, h: H - cy, from: 'bottom' }; }
+    if (disc) put(disc, r.y + r.h - disc.h, .3);
   } else {
     // side by side: headline (and button) on the left, judges in the band on the right
     const gap = Math.round(fam === 'strip' ? Math.max(5, r.h * .16) : m * .07);
     const leftW = r.w * (fam === 'strip' ? .3 : endOn ? .33 : .38);
     const ctaCol = fam === 'strip' && r.w >= 560 && state.text.cta.trim() ? r.w * .2 : 0;
-    const endW = fam === 'cols' && endOn ? r.w * .17 : 0;
+    const endW = fam === 'cols' && endOn ? r.w * .15 : 0;
     const discH = discOn ? clamp(H * (fam === 'strip' ? .15 : .06), 7, 16) : 0;
     const lh = r.h - (discH ? discH + gap * .3 : 0);
-    // left column on the headline color
-    let left = [];
-    const shortStrip = fam === 'strip' && lh < 46;
-    if (shortStrip) left = [ctaBlock(ctx, r.x, leftW, lh, T.ctaTop, T.ctaTopInk, T.ink, 'left', false)];
+    let hdr = null, cta = null;
+    if (fam === 'strip' && lh < 46) cta = ctaBlock(r.x, leftW, lh, T.ctaTop, T.ctaTopInk, 'left', P);
     else {
-      const ctaH = ctaCol ? 0 : lh * (fam === 'strip' ? .36 : .3);
-      const hdr = headerBlock(ctx, r.x, leftW, lh - ctaH - (ctaH ? gap * .4 : 0), T, 'left', P, fam === 'strip');
-      const cta = ctaH ? ctaBlock(ctx, r.x, leftW, ctaH, T.ctaTop, T.ctaTopInk, T.ink, 'left', fam !== 'strip') : null;
-      left = [hdr, cta];
+      const ctaH = ctaCol ? 0 : lh * (fam === 'strip' ? .36 : .28);
+      hdr = headerBlock(r.x, leftW, lh - ctaH - (ctaH ? gap * .4 : 0), T, 'left', P, fam === 'strip');
+      if (!hdr && !ctaCol) cta = ctaBlock(r.x, leftW, lh, T.ctaTop, T.ctaTopInk, 'left', P); // no room for a readable headline: the button says it
+      else if (ctaH) cta = ctaBlock(r.x, leftW, ctaH, T.ctaTop, T.ctaTopInk, 'left', P);
     }
-    const lb = left.filter(Boolean);
-    spread(lb, r.y, lh, gap * .4).forEach((y, i) => put(lb[i], y));
-    if (discH) put(discBlock(ctx, r.x, leftW, discH * .8, T.ink, 'left'), r.y + r.h - discH);
-    // the band: everything right of the left column, full height
+    const left = [hdr, cta].filter(Boolean), ys = spread(left, r.y, lh, gap * .4);
     const bx = r.x + leftW + gap * .5;
-    band = { x: bx, y: 0, w: W - bx, h: H };
+    band = { x: bx, y: 0, w: W - bx, h: H, from: 'right' };
     const lx = bx + gap * .5, lw = r.x + r.w - lx - endW - ctaCol - (endW || ctaCol ? gap : 0);
-    const lu = lineupBlock(ctx, lx, lw, r.h, T, T.bandInk);
-    if (lu) put(lu, r.y + (r.h - lu.h) / 2);
-    if (endW) { const e = endBlock(ctx, r.x + r.w - endW, endW, r.h, T, T.bandInk, 'stack'); if (e) put(e, r.y + (r.h - e.h) / 2); }
-    if (ctaCol) { const c = ctaBlock(ctx, r.x + r.w - ctaCol, ctaCol, r.h, T.cta, T.ctaInk, T.bandInk, 'center', false); if (c) put(c, r.y + (r.h - c.h) / 2); }
+    const lu = lineupBlock(lx, lw, r.h, T, T.bandInk, P);
+    const e = endW ? endBlock(r.x + r.w - endW, endW, r.h, T, T.bandInk, 'stack', P) : null;
+    const c2 = ctaCol ? ctaBlock(r.x + r.w - ctaCol, ctaCol, r.h, T.cta, T.ctaInk, 'center', P) : null;
+    if (hdr) { put(hdr, ys[left.indexOf(hdr)], t); t += hdr.dur; }
+    if (lu) { put(lu, r.y + (r.h - lu.h) / 2, t - .3); t += lu.dur - .3; }
+    if (e) { put(e, r.y + (r.h - e.h) / 2, t - .3); t += e.dur - .3; }
+    if (cta) { put(cta, ys[left.indexOf(cta)], t - .2); t += cta.dur - .2; }
+    if (c2) { put(c2, r.y + (r.h - c2.h) / 2, t - .2); t += c2.dur - .2; }
+    if (discH) put(discBlock(r.x, leftW, discH * .8, T.ink, 'left'), r.y + r.h - discH, .3);
   }
-  return { fam, band, ops, sticker, m };
+  return { fam, band, items, sticker, m, end: t };
 }
 
 /* ---------- drawing ---------- */
 function drawPattern(ctx, P, T, L) {
   const W = P.w, H = P.h, m = L.m, rand = rng(W * 7 + H * 13), tone = rgba(T.ink, .06);
+  // patterns drift slowly while the ad plays
+  const drift = Number.isFinite(NOW) ? NOW : 0;
   if (state.pattern === 'burst') {
-    const cx = W / 2, cy = L.band ? L.band.y : H, R = Math.hypot(W, H), n = 32;
+    const cx = W / 2, cy = L.band ? L.band.y : H, R = Math.hypot(W, H), n = 32, rot = drift * .05;
     ctx.fillStyle = tone;
     for (let i = 0; i < n; i += 2) {
-      const a0 = i * Math.PI * 2 / n, a1 = (i + 1) * Math.PI * 2 / n;
+      const a0 = rot + i * Math.PI * 2 / n, a1 = rot + (i + 1) * Math.PI * 2 / n;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a0) * R, cy + Math.sin(a0) * R); ctx.lineTo(cx + Math.cos(a1) * R, cy + Math.sin(a1) * R); ctx.fill();
     }
   } else if (state.pattern === 'halftone') {
@@ -584,27 +658,45 @@ function drawPattern(ctx, P, T, L) {
   } else if (state.pattern === 'stars') {
     const n = clamp(Math.round(W * H / (m * m) * 6), 5, 36);
     ctx.fillStyle = tone;
-    for (let i = 0; i < n; i++) ctx.fill(starPath(rand() * W, rand() * H, m * (.025 + rand() * .05), -Math.PI / 2 + (rand() - .5) * .6));
+    for (let i = 0; i < n; i++) ctx.fill(starPath(rand() * W, ((rand() * H - drift * m * .02) % H + H) % H, m * (.025 + rand() * .05), -Math.PI / 2 + (rand() - .5) * .6 + drift * .2));
   }
 }
 function drawSticker(ctx, S, T) {
   const R = S.d / 2, fill = T.top === state.colors.yellow ? state.colors.blue : state.colors.yellow, ink = fill === state.colors.blue ? state.colors.white : state.colors.black;
-  ctx.save(); ctx.translate(S.cx, S.cy); ctx.rotate(-.16);
+  const p = prog(S.t0, .6);
+  if (p <= 0) return;
+  ctx.save(); ctx.translate(S.cx, S.cy); ctx.rotate(-.16 - (1 - EASE.out(p)) * 1.2); ctx.scale(EASE.back(p), EASE.back(p));
   ctx.fillStyle = fill; ctx.fill(starPath(0, 0, R, 0, 14, .84));
-  const res = fitStack(ctx, [{ text: state.text.sticker, role: 'heavy', r: 1, lh: 1, color: ink }], R * 1.4, R * 1.1, R * .45);
+  const res = fitStack(MC, [{ text: state.text.sticker, role: 'heavy', r: 1, lh: 1, color: ink }], R * 1.4, R * 1.1, R * .45);
   if (res) drawStack(ctx, res, -R * .7, -res.total / 2, 'center');
   ctx.restore();
 }
 
-function render(ctx, P, k, editor) {
+/* t is seconds into the animation (Infinity = the finished ad). If the
+   intro is longer than the chosen length allows, it plays faster. */
+function render(ctx, P, k, editor, t = Infinity) {
   ctx.setTransform(k, 0, 0, k, 0, 0);
-  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  const T = themeFor(P), L = plan(ctx, P, T);
-  ctx.fillStyle = T.top; ctx.fillRect(0, 0, P.w, P.h);
-  drawPattern(ctx, P, T, L);
-  if (L.band) { ctx.fillStyle = T.band; ctx.fillRect(L.band.x, L.band.y, L.band.w, L.band.h); }
-  L.ops.forEach(f => f());
-  if (L.sticker?.cx) drawSticker(ctx, L.sticker, T);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
+  const T = themeFor(P), L = plan(P, T);
+  const speed = Math.max(1, L.end / Math.max(1, state.duration - 1.5));
+  NOW = t * speed; DC = ctx;
+  try {
+    ctx.fillStyle = T.top; ctx.fillRect(0, 0, P.w, P.h);
+    drawPattern(ctx, P, T, L);
+    if (L.band) {
+      const p = EASE.out(prog(0, .7)), b = L.band;
+      ctx.fillStyle = T.band;
+      if (b.from === 'right') ctx.fillRect(P.w - (P.w - b.x) * p, b.y, b.w, b.h);
+      else ctx.fillRect(b.x, P.h - (P.h - b.y) * p, b.w, b.h);
+    }
+    L.items.forEach(it => it.b.draw(it.y, it.t0));
+    if (L.sticker?.cx) drawSticker(ctx, L.sticker, T);
+    // optional fade at the very end so a looping video starts again cleanly
+    if (Number.isFinite(t) && state.outro === 'fade') {
+      const f = clamp((t - (state.duration - .45)) / .45, 0, 1);
+      if (f > 0) { ctx.globalAlpha = f; ctx.fillStyle = T.top; ctx.fillRect(0, 0, P.w, P.h); ctx.globalAlpha = 1; }
+    }
+  } finally { NOW = Infinity; DC = MC; }
   if (editor && P.safe && state.guides) {
     const s = P.safe;
     ctx.fillStyle = 'rgba(255,40,40,.16)';
@@ -616,42 +708,85 @@ function render(ctx, P, k, editor) {
 }
 
 /* ---------- views ---------- */
-let drawQueued = false;
+// the editor plays the animation on a loop; any edit re-plans every size
+let drawQueued = false, playing = true, playT = 0, lastTs = 0, exporting = false;
 function redraw() {
+  planVersion++;
   if (drawQueued) return;
   drawQueued = true;
-  requestAnimationFrame(() => { drawQueued = false; state.view === 'grid' ? drawGrid() : drawSingle(); });
+  requestAnimationFrame(() => { drawQueued = false; state.view === 'grid' ? drawGrid() : drawSingle(true); });
 }
-function drawSingle() {
+let shownKey = '';
+function drawSingle(full) {
   const P = presetOf(state.size), wrapEl = $('#canvasWrap'), c = $('#ad');
   const aw = wrapEl.clientWidth - 8, ah = wrapEl.clientHeight - 8;
   const k = Math.max(.05, Math.min(aw / P.w, ah / P.h, 3)), dpr = window.devicePixelRatio || 1;
-  c.width = Math.round(P.w * k * dpr); c.height = Math.round(P.h * k * dpr);
-  c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
-  render(c.getContext('2d'), P, k * dpr, true);
+  const key = `${P.w}x${P.h}@${k}`;
+  if (full || key !== shownKey) {
+    shownKey = key;
+    c.width = Math.round(P.w * k * dpr); c.height = Math.round(P.h * k * dpr);
+    c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
+  }
+  render(c.getContext('2d'), P, k * dpr, true, playT);
+  $('#scrub').value = Math.round(playT / state.duration * 1000);
+  $('#timeRead').textContent = `${playT.toFixed(1)}s`;
+  if (!full) return;
   $('#sizeInfo').innerHTML = `<b>${esc(P.name)}</b> · ${P.w}×${P.h}px · shown at ${Math.round(k * 100)}%${P.note ? ` · ${esc(P.note)}` : ''}`;
   const warn = [];
   if (state.sizes[P.key]?.endorser && !state.endorser.photo) warn.push('No endorser photo yet: add one on the Endorser tab.');
   if (usePhotos() && state.candidates.some(c => !c.photo)) warn.push('Some candidates have no photo yet.');
-  if (/\[|endorser name/i.test(JSON.stringify([state.text, state.endorser.name]))) warn.push('Placeholder text is still in the ad.');
+  if (/\[/.test(JSON.stringify(state.text))) warn.push('Placeholder text is still in the ad.');
   if (!state.sizes[P.key]?.disclaimer || !state.text.disclaimer.trim()) warn.push('No disclaimer on this size.');
   $('#warnings').textContent = warn.join(' ');
 }
+function tick(ts) {
+  const dt = lastTs ? Math.min(.1, (ts - lastTs) / 1000) : 0;
+  lastTs = ts;
+  if (playing && !exporting && state.view === 'single') {
+    playT += dt;
+    if (playT > state.duration) playT = 0;
+    drawSingle(false);
+  }
+  requestAnimationFrame(tick);
+}
+function setPlaying(v) { playing = v; $('#playBtn').textContent = v ? '❚❚' : '▶'; }
+$('#playBtn').onclick = () => { if (!playing && playT >= state.duration - .05) playT = 0; setPlaying(!playing); };
+$('#scrub').oninput = e => { setPlaying(false); playT = +e.target.value / 1000 * state.duration; drawSingle(false); };
+document.addEventListener('keydown', e => {
+  if (e.code !== 'Space' || /input|textarea|select/i.test(e.target.tagName)) return;
+  e.preventDefault(); $('#playBtn').click();
+});
+// the grid shows every size finished; hover a card to play it
 function drawGrid() {
   const grid = $('#adGrid'), dpr = window.devicePixelRatio || 1;
   if (grid.children.length !== PRESETS.length) {
     grid.innerHTML = PRESETS.map(p => `<button class="ad-card" data-key="${p.key}"><canvas></canvas><div><b>${esc(p.name)}</b> <span></span></div></button>`).join('');
-    $$('.ad-card', grid).forEach(b => b.onclick = () => { state.size = b.dataset.key; setView('single'); renderSizeList(); save(); });
+    $$('.ad-card', grid).forEach(b => {
+      b.onclick = () => { state.size = b.dataset.key; playT = 0; setView('single'); renderSizeList(); save(); };
+      b.onmouseenter = () => playCard(b);
+    });
   }
-  PRESETS.forEach((p0, i) => {
-    const P = presetOf(p0.key), card = grid.children[i], c = $('canvas', card);
-    const k = Math.min(1, 380 / P.w, 340 / P.h);
-    c.width = Math.round(P.w * k * dpr); c.height = Math.round(P.h * k * dpr);
-    c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
-    render(c.getContext('2d'), P, k * dpr, false);
-    $('span', card).textContent = `${P.w}×${P.h}`;
-    card.classList.toggle('active', P.key === state.size);
-  });
+  PRESETS.forEach((p0, i) => drawCard(grid.children[i], Infinity));
+}
+function drawCard(card, t) {
+  const P = presetOf(card.dataset.key), c = $('canvas', card), dpr = window.devicePixelRatio || 1;
+  const k = Math.min(1, 380 / P.w, 340 / P.h);
+  if (c.width !== Math.round(P.w * k * dpr)) { c.width = Math.round(P.w * k * dpr); c.height = Math.round(P.h * k * dpr); }
+  c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
+  render(c.getContext('2d'), P, k * dpr, false, t);
+  $('span', card).textContent = `${P.w}×${P.h}`;
+  card.classList.toggle('active', P.key === state.size);
+}
+function playCard(card) {
+  if (card.dataset.playing) return;
+  card.dataset.playing = '1';
+  const start = performance.now();
+  const step = now => {
+    const t = (now - start) / 1000;
+    if (t > state.duration || state.view !== 'grid') { delete card.dataset.playing; drawCard(card, Infinity); return; }
+    drawCard(card, t); requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 function setView(v) {
   state.view = v;
@@ -804,8 +939,12 @@ $('#kitLoad').onclick = () => {
 document.fonts.addEventListener('loadingdone', () => { fontStatus(); redraw(); });
 
 /* ---------- export ---------- */
+// Meta sizes export as MP4 video; Google Display doesn't take video in image
+// slots, so its sizes export as animated GIFs kept under Google's 150 KB.
 const toBlob = (c, type, q) => new Promise(res => c.toBlob(res, type, q));
-async function exportBlob(P) {
+const yieldNow = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
+const isGif = P => P.group === 'Google';
+async function stillBlob(P) {
   const c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
   render(c.getContext('2d'), P, 1, false);
   let blob = await toBlob(c, state.exp.format === 'jpg' ? 'image/jpeg' : 'image/png', .92);
@@ -814,31 +953,197 @@ async function exportBlob(P) {
   }
   return blob;
 }
-const fileName = (P, blob) => `judicial-ad_${P.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}_${P.w}x${P.h}.${blob.type === 'image/jpeg' ? 'jpg' : 'png'}`;
+
+/* MP4: render each frame off-screen and encode with WebCodecs, H.264 where
+   the browser has it (Chrome), VP9 otherwise. */
+const FPS = 30;
+const CODECS = [{ mux: 'avc', codec: 'avc1.640028' }, { mux: 'avc', codec: 'avc1.4d0028' }, { mux: 'avc', codec: 'avc1.42e028' }, { mux: 'vp9', codec: 'vp09.00.40.08' }];
+async function pickCodec(P) {
+  if (!window.VideoEncoder || !window.Mp4Muxer) return null;
+  for (const c of CODECS) {
+    const config = { codec: c.codec, width: P.w, height: P.h, bitrate: clamp(P.w * P.h * 5, 1e6, 10e6), framerate: FPS, ...(c.mux === 'avc' ? { avc: { format: 'avc' } } : {}) };
+    try { if ((await VideoEncoder.isConfigSupported(config)).supported) return { ...c, config }; } catch {}
+  }
+  return null;
+}
+async function videoBlob(P, onProg) {
+  const fc = await pickCodec(P);
+  if (!fc) throw new Error('this browser can\'t encode video. Use Chrome or Edge.');
+  const c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
+  const ctx = c.getContext('2d'), n = Math.round(state.duration * FPS);
+  const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: fc.mux, width: P.w, height: P.h, frameRate: FPS }, fastStart: 'in-memory' });
+  let failure = null;
+  const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { failure = e; } });
+  enc.configure(fc.config);
+  for (let i = 0; i < n; i++) {
+    if (failure) throw failure;
+    render(ctx, P, 1, false, i / FPS);
+    const frame = new VideoFrame(c, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+    enc.encode(frame, { keyFrame: i % (FPS * 2) === 0 }); frame.close();
+    while (enc.encodeQueueSize > 6) await yieldNow();
+    if (i % 10 === 0) { onProg?.(i / n); await yieldNow(); }
+  }
+  await enc.flush(); enc.close();
+  if (failure) throw failure;
+  muxer.finalize();
+  return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+}
+
+/* GIF: one shared palette (median cut over a few frames), and each frame
+   only stores the pixels that changed, which is what keeps these small.
+   Steps down frame rate and colors until it fits under 150 KB. */
+function medianCut(hist, maxColors) {
+  const bins = [];
+  for (let i = 0; i < hist.length; i++) if (hist[i]) bins.push(i);
+  let boxes = [bins];
+  const ch = (b, c) => c === 0 ? b >> 10 : c === 1 ? (b >> 5) & 31 : b & 31;
+  while (boxes.length < maxColors) {
+    let bi = -1, best = 0, bc = 0;
+    boxes.forEach((box, i) => {
+      if (box.length < 2) return;
+      for (let c = 0; c < 3; c++) {
+        let lo = 31, hi = 0; for (const b of box) { const v = ch(b, c); if (v < lo) lo = v; if (v > hi) hi = v; }
+        const score = (hi - lo) * Math.log2(box.length + 1);
+        if (score > best) { best = score; bi = i; bc = c; }
+      }
+    });
+    if (bi < 0) break;
+    const box = boxes[bi].sort((a, b) => ch(a, bc) - ch(b, bc));
+    let total = 0; for (const b of box) total += hist[b];
+    let acc = 0, cut = 1;
+    for (let i = 0; i < box.length - 1; i++) { acc += hist[box[i]]; if (acc >= total / 2) { cut = i + 1; break; } }
+    boxes.splice(bi, 1, box.slice(0, cut), box.slice(cut));
+  }
+  return boxes.map(box => {
+    let r = 0, g = 0, b = 0, n = 0;
+    for (const x of box) { const w = hist[x]; r += ((x >> 10) * 8 + 4) * w; g += (((x >> 5) & 31) * 8 + 4) * w; b += ((x & 31) * 8 + 4) * w; n += w; }
+    return [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+  });
+}
+function lzw(idx, out) {
+  const minCode = 8, clear = 256, eoi = 257;
+  let codeSize = 9, next = 258, cur = 0, bits = 0;
+  const dict = new Map(), bytes = [];
+  const emit = c => { cur |= c << bits; bits += codeSize; while (bits >= 8) { bytes.push(cur & 255); cur >>>= 8; bits -= 8; } };
+  emit(clear);
+  let prefix = idx[0];
+  for (let i = 1; i < idx.length; i++) {
+    const k = idx[i], key = prefix << 8 | k, v = dict.get(key);
+    if (v !== undefined) { prefix = v; continue; }
+    emit(prefix);
+    if (next === 4096) { emit(clear); dict.clear(); next = 258; codeSize = 9; }
+    else { if (next >= 1 << codeSize) codeSize++; dict.set(key, next++); }
+    prefix = k;
+  }
+  emit(prefix); emit(eoi);
+  if (bits > 0) bytes.push(cur & 255);
+  out.push(minCode);
+  for (let i = 0; i < bytes.length; i += 255) { const n = Math.min(255, bytes.length - i); out.push(n); for (let j = 0; j < n; j++) out.push(bytes[i + j]); }
+  out.push(0);
+}
+async function gifBlob(P, onProg) {
+  const c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
+  const ctx = c.getContext('2d', { willReadFrequently: true }), W = P.w, H = P.h;
+  const grab = t => { render(ctx, P, 1, false, t); return ctx.getImageData(0, 0, W, H).data; };
+  // palette from a handful of moments, weighted toward the finished ad
+  const hist = new Uint32Array(32768);
+  for (const t of [.5, 1.5, 2.5, 3.5, Infinity, Infinity]) {
+    const d = grab(t);
+    for (let i = 0; i < d.length; i += 8) hist[(d[i] >> 3) << 10 | (d[i + 1] >> 3) << 5 | d[i + 2] >> 3]++;
+  }
+  const tries = [[12, 255], [10, 160], [8, 110], [6, 72], [5, 48]];
+  let blob = null;
+  for (const [ti, [fps, colors]] of tries.entries()) {
+    const pal = medianCut(hist, colors), lookup = new Int16Array(32768).fill(-1);
+    const nearest = key => {
+      if (lookup[key] >= 0) return lookup[key];
+      const r = (key >> 10) * 8 + 4, g = ((key >> 5) & 31) * 8 + 4, b = (key & 31) * 8 + 4;
+      let bi = 0, bd = 1e9;
+      pal.forEach(([pr, pg, pb], i) => { const dd = (pr - r) ** 2 * 2 + (pg - g) ** 2 * 3 + (pb - b) ** 2; if (dd < bd) { bd = dd; bi = i; } });
+      return (lookup[key] = bi + 1); // index 0 is "unchanged" (transparent)
+    };
+    const out = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, W & 255, W >> 8, H & 255, H >> 8, 0xF7, 0, 0];
+    for (let i = 0; i < 256; i++) { const p = pal[i - 1] || [0, 0, 0]; out.push(p[0], p[1], p[2]); }
+    // Google allows looping only within 30 seconds in total
+    const plays = Math.max(1, Math.floor(30 / state.duration));
+    if (plays > 1) out.push(0x21, 0xFF, 11, ...[...'NETSCAPE2.0'].map(ch => ch.charCodeAt(0)), 3, 1, (plays - 1) & 255, (plays - 1) >> 8, 0);
+    const n = Math.max(2, Math.round(state.duration * fps)), prev = new Uint8Array(W * H);
+    const frames = [];
+    for (let f = 0; f < n; f++) {
+      const d = grab(f / fps), cur = new Uint8Array(W * H);
+      for (let i = 0, j = 0; i < cur.length; i++, j += 4) cur[i] = nearest((d[j] >> 3) << 10 | (d[j + 1] >> 3) << 5 | d[j + 2] >> 3);
+      let x0 = W, y0 = H, x1 = -1, y1 = -1;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; if (f === 0 || cur[i] !== prev[i]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+      if (x1 < 0) { frames[frames.length - 1].end = f + 1; continue; }
+      const w = x1 - x0 + 1, h = y1 - y0 + 1, sub = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y + y0) * W + x + x0; sub[y * w + x] = f && cur[i] === prev[i] ? 0 : cur[i]; }
+      prev.set(cur);
+      frames.push({ x0, y0, w, h, sub, start: f, end: f + 1, first: f === 0 });
+      if (f % 6 === 0) { onProg?.((ti + f / n) / tries.length); await yieldNow(); }
+    }
+    // hold the finished ad until the end of the clip
+    for (const fr of frames) {
+      const delay = Math.round(fr.end * 100 / fps) - Math.round(fr.start * 100 / fps);
+      out.push(0x21, 0xF9, 4, (1 << 2) | (fr.first ? 0 : 1), delay & 255, delay >> 8, 0, 0);
+      out.push(0x2C, fr.x0 & 255, fr.x0 >> 8, fr.y0 & 255, fr.y0 >> 8, fr.w & 255, fr.w >> 8, fr.h & 255, fr.h >> 8, 0);
+      lzw(fr.sub, out);
+    }
+    out.push(0x3B);
+    blob = new Blob([new Uint8Array(out)], { type: 'image/gif' });
+    if (!state.exp.cap || blob.size <= GOOGLE_CAP) break;
+  }
+  return blob;
+}
+const animBlob = (P, onProg) => isGif(P) ? gifBlob(P, onProg) : videoBlob(P, onProg);
+
+const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'video/mp4': 'mp4' };
+const fileName = (P, blob) => `judicial-ad_${P.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}_${P.w}x${P.h}.${EXT[blob.type] || 'bin'}`;
 function download(blob, name) {
   const a = document.createElement('a'), url = URL.createObjectURL(blob);
   a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
-$('#exportOne').onclick = async () => { const P = presetOf(state.size), b = await exportBlob(P); download(b, fileName(P, b)); };
-$('#exportBatch').onclick = async () => {
+function progress(frac, text) {
+  const prog = $('#progress'); prog.hidden = false;
+  $('div', prog).style.width = `${clamp(frac, 0, 1) * 100}%`; $('span', prog).textContent = text;
+}
+async function busy(fn) {
+  if (exporting) return;
+  exporting = true; $$('#exportOne, #exportAnim, #exportBatch').forEach(b => { b.disabled = true; });
+  try { await fn(); }
+  catch (err) { progress(1, `Export failed: ${err.message || err}`); }
+  exporting = false; $$('#exportOne, #exportAnim, #exportBatch').forEach(b => { b.disabled = false; });
+}
+const kb = b => `${Math.round(b.size / 1024)} KB`;
+$('#exportOne').onclick = () => busy(async () => { const P = presetOf(state.size), b = await stillBlob(P); download(b, fileName(P, b)); });
+$('#exportAnim').onclick = () => busy(async () => {
+  const P = presetOf(state.size);
+  const b = await animBlob(P, f => progress(f, `${P.name}: ${Math.round(f * 100)}%`));
+  download(b, fileName(P, b));
+  progress(1, `Done: ${fileName(P, b)} (${kb(b)})${isGif(P) && b.size > GOOGLE_CAP ? ' — over 150 KB; try a shorter length' : ''}`);
+});
+$('#exportBatch').onclick = () => busy(async () => {
   const list = PRESETS.filter(p => state.sizes[p.key].batch).map(p => presetOf(p.key));
   if (!list.length) { alert('Check at least one size.'); return; }
-  const prog = $('#progress'), bar = $('div', prog), lab = $('span', prog), btn = $('#exportBatch');
-  prog.hidden = false; btn.disabled = true;
-  const files = [];
-  try {
-    for (const [i, P] of list.entries()) {
-      lab.textContent = `${P.name} (${i + 1}/${list.length})`; bar.style.width = `${(i / list.length) * 100}%`;
-      const blob = await exportBlob(P), name = fileName(P, blob);
+  const anim = state.exp.kind === 'anim', files = [], over = [];
+  for (const [i, P] of list.entries()) {
+    const label = f => progress((i + f) / list.length, `${P.name} (${i + 1}/${list.length})`);
+    label(0);
+    const add = async blob => {
+      const name = fileName(P, blob);
       if (state.exp.zip) files.push({ path: `${P.group.toLowerCase()}/${name}`, blob });
       else { download(blob, name); await new Promise(r => setTimeout(r, 350)); }
-    }
-    if (files.length) download(await makeZip(files), `judicial-ads_${files.length}-sizes.zip`);
-    bar.style.width = '100%'; lab.textContent = `Done: ${list.length} files`;
-  } catch (err) { lab.textContent = `Export failed: ${err.message}`; }
-  btn.disabled = false;
-};
+    };
+    if (anim) {
+      const b = await animBlob(P, label);
+      if (isGif(P) && b.size > GOOGLE_CAP) over.push(P.name);
+      await add(b);
+      if (state.exp.stills && isGif(P)) await add(await stillBlob(P)); // Google asks for a still backup too
+    } else await add(await stillBlob(P));
+  }
+  if (files.length) download(await makeZip(files), `judicial-ads_${anim ? 'animated' : 'stills'}_${list.length}-sizes.zip`);
+  progress(1, `Done: ${list.length} sizes${over.length ? `. Over 150 KB: ${over.join(', ')} (try a shorter length)` : ''}`);
+});
 
 /* minimal ZIP writer (stored, no compression: PNG and JPG are already compressed) */
 const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
@@ -887,7 +1192,9 @@ function initUI() {
 }
 window.addEventListener('resize', redraw);
 initUI();
+requestAnimationFrame(tick);
 warmFonts();
 // for headless checks: render a preset to a data URL
-window.__renderSize = key => { const P = presetOf(key), c = document.createElement('canvas'); c.width = P.w; c.height = P.h; render(c.getContext('2d'), P, 1, false); return c.toDataURL('image/png'); };
+window.__renderSize = (key, t) => { const P = presetOf(key), c = document.createElement('canvas'); c.width = P.w; c.height = P.h; render(c.getContext('2d'), P, 1, false, t ?? Infinity); return c.toDataURL('image/png'); };
+window.__exportAnim = async key => { const b = await animBlob(presetOf(key)); return { type: b.type, size: b.size, data: [...new Uint8Array(await b.arrayBuffer())] }; };
 })();
