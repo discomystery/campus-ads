@@ -205,7 +205,6 @@ function fontStatus() {
     : 'No Adobe Fonts project yet. Using Archivo in place of Obviously.';
   if (varNote === 'auto') $('#cssBox').open = true;
   document.documentElement.style.setProperty('--display', `"${f.family}", ${FALLBACK}`);
-  document.documentElement.style.setProperty('--body', `"${f.family}", ${FALLBACK}, system-ui`);
 }
 
 /* ---------- colors ---------- */

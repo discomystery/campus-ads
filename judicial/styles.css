@@ -10,8 +10,8 @@
   --blue2: #2f4a9b;
   --danger: #ff7a70;
   --radius: 10px;
-  --display: "roc-grotesk-wide", "Archivo Black", sans-serif;
-  --body: "roc-grotesk", "Archivo", system-ui, sans-serif;
+  --display: "obviously-variable", "Archivo", sans-serif;
+  --body: system-ui, -apple-system, "Segoe UI", Roboto, "Archivo", sans-serif;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
