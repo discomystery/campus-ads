@@ -43,12 +43,13 @@ function freshState() {
   return {
     size: 'meta45', view: 'single', tab: 'cands',
     text: {
-      kicker: 'Judges are on your ballot',
+      kicker: 'Today is Election Day',
       headline: "Don't skip the *judges!*",
-      sub: 'Vote all the way down the ballot. These statewide courts decide our rights for years to come.',
+      sub: 'Missed early voting? There\'s still time. Vote at your assigned polling place, and go all the way down the ballot.',
       cardTitle: 'Statewide judicial races',
-      cta: 'Vote by Nov 3',
-      sticker: 'Finish your ballot!',
+      cta: 'Polls open till 7:30\u00a0PM',
+      info: 'Find your polling place at vote.nc.gov. In line by 7:30\u00a0PM? You can vote.',
+      sticker: 'It\'s not too late!',
       disclaimer: 'Paid for by [Committee Name]',
     },
     upper: true,
@@ -154,7 +155,7 @@ function words(text) {
   const out = []; let hi = false, cur = null;
   for (const ch of text) {
     if (ch === '*') { hi = !hi; continue; }
-    if (/\s/.test(ch)) { cur = null; continue; }
+    if (/[^\S\u00a0]/.test(ch)) { cur = null; continue; } // a no-break space keeps "7:30 PM" together
     if (!cur) out.push(cur = []);
     const last = cur[cur.length - 1];
     if (last && last.hi === hi) last.t += ch; else cur.push({ t: ch, hi });
@@ -215,7 +216,7 @@ function search(build, lo, hi) {
    Optional items are dropped (last first) when keeping them would shrink
    the main text too much or leave them unreadably small. */
 function fitStack(ctx, items, w, h, maxBase) {
-  items = items.filter(it => it.text && String(it.text).trim());
+  items = items.filter(it => it && it.text && String(it.text).trim());
   const build = (s, use) => {
     let total = 0; const out = [];
     for (const it of use) {
@@ -332,7 +333,7 @@ function layout(P) {
   const hasCta = !!t.cta.trim();
   if (fam === 'tall') {
     L.gap = Math.round(m * .035); L.body = r; L.endorser = endorser; L.side = endorser && r.w >= 420;
-    if (hasCta) L.cta = split(r, 'bottom', clamp(r.h * .09, 26, 100))[0];
+    if (hasCta) L.cta = split(r, 'bottom', clamp(r.h * (t.info.trim() ? .13 : .09), 26, 150))[0];
     L.header = split(r, 'top', r.h * (endorser ? (L.side ? .34 : .26) : r.w < 420 ? .27 : .36))[0];
     if (state.sticker && t.sticker.trim() && L.header.w >= 560) {
       const d = Math.min(L.header.h * 1.05, L.header.w * .3);
@@ -346,14 +347,16 @@ function layout(P) {
     let head;
     [head, L.cands] = split(cols, 'left', cols.w * (endorser ? .48 : .5), gap);
     L.headCol = head; L.colGap = gap * .5;
-    if (hasCta) [L.cta, head] = split(head, 'bottom', clamp(head.h * .2, 16, 84), L.colGap);
+    if (hasCta) [L.cta, head] = split(head, 'bottom', clamp(head.h * (t.info.trim() ? .3 : .2), 16, 130), L.colGap);
     L.header = head;
   } else {
     const gap = Math.max(4, Math.round(r.h * .14));
     if (endorser) [L.end, r] = split(r, 'left', Math.min(r.h, r.w * .2), gap);
     if (hasCta && r.w >= 560) [L.cta, r] = split(r, 'right', r.w * .2, gap);
     [L.header, L.cands] = split(r, 'left', r.w * .34, gap);
-    if (hasCta && !L.cta && L.header.h >= 54) { [L.cta, L.header] = split(L.header, 'bottom', L.header.h * .32, L.header.h * .06); L.headCol = { ...L.header, h: L.header.h + L.cta.h + L.header.h * .06 }; L.colGap = L.header.h * .06; }
+    // too short for headline + button: on Election Day the button (polls close) wins
+    if (hasCta && !L.cta && L.header.h < 54) { L.cta = L.header; L.header = null; }
+    else if (hasCta && !L.cta && L.header.h >= 54) { [L.cta, L.header] = split(L.header, 'bottom', L.header.h * .32, L.header.h * .06); L.headCol = { ...L.header, h: L.header.h + L.cta.h + L.header.h * .06 }; L.colGap = L.header.h * .06; }
   }
   return L;
 }
@@ -393,8 +396,12 @@ function drawBg(ctx, P, T, L) {
 function headerBlock(ctx, r, T, L) {
   const t = state.text, big = r.w * .028 + 6, strip = L.fam === 'strip';
   const hl = state.upper ? t.headline.toUpperCase() : t.headline;
+  // Election Day ads: the "today" tag always shows; a banner too small for a button
+  // carries the button's text (polls close) as the tag instead
+  const kick = strip ? null
+    : { text: t.kicker, pill: T.tag, color: T.tagInk, r: r.w < 420 ? .42 : .26 };
   const res = fitStack(ctx, [
-    { text: t.kicker.toUpperCase(), role: 'black', r: .26, cap: big + 4, min: 8, pill: T.tag, color: T.tagInk, optional: true, maxLines: 2, lh: 1.1, gap: 0 },
+    kick && { text: kick.text.toUpperCase(), role: 'black', r: kick.r, cap: big + 4, pill: kick.pill, color: kick.color, maxLines: 2, lh: 1.1, gap: 0 },
     { text: hl, role: 'display', r: 1, lh: .98, color: T.ink, hi: { fill: T.accent, ink: T.accentInk }, gap: .3 },
     { text: strip ? '' : t.sub, role: 'medium', r: .32, cap: big + 9, min: 8.5, color: T.ink, optional: true, lh: 1.28, gap: .32 },
   ], r.w, r.h, Math.min(r.w * (strip ? .3 : .19), 200));
@@ -525,20 +532,31 @@ function endBlock(ctx, r, T, L) {
   } };
 }
 
+// the button, plus the polling-place line under it when there's room
 function ctaBlock(ctx, r, T, L) {
-  const text = state.text.cta.trim(), strip = L.fam === 'strip';
-  const build = s => {
+  const text = state.text.cta.trim(), info = L.fam === 'strip' ? '' : state.text.info.trim(), strip = L.fam === 'strip';
+  const build = (s, withInfo) => {
     const b = wrap(ctx, text, font('black', s), r.w - s * 1.6);
     if (b.over || b.lines.length > 2) return null;
-    const h = blockH(b.lines.length, s, 1.05) + s * 1.1, w = b.maxW + s * 1.6;
-    return h <= r.h && w <= r.w ? { s, b, h, w } : null;
+    const ph = blockH(b.lines.length, s, 1.05) + s * 1.1, w = b.maxW + s * 1.6;
+    let h = ph, ib = null, is = 0;
+    if (withInfo) {
+      is = s * .46; ib = wrap(ctx, info, font('medium', is), r.w);
+      if (ib.over || ib.lines.length > 2) return null;
+      h += s * .4 + blockH(ib.lines.length, is, 1.25);
+    }
+    return h <= r.h && w <= r.w ? { s, b, ph, h, w, ib, is } : null;
   };
-  const F = search(build, 4, Math.min(r.h * .5, 64));
+  const bare = search(s => build(s, false), 4, Math.min(r.h * .5, 64));
+  const full = info ? search(s => build(s, true), 4, Math.min(r.h * .5, 64)) : null;
+  const F = full && full.is >= 8.5 && bare && full.s >= bare.s * .6 ? full : bare;
   if (!F) return null;
+  const tall = L.fam === 'tall';
   return { h: F.h, draw: y => {
-    const x = L.fam === 'tall' ? r.x + (r.w - F.w) / 2 : r.x;
-    shadowFill(ctx, rrect(x, y, F.w, F.h, F.h / 2), T.cta, T.shadow, strip ? Math.max(1.5, F.s * .12) : Math.max(2, F.s * .16));
+    const x = tall ? r.x + (r.w - F.w) / 2 : r.x;
+    shadowFill(ctx, rrect(x, y, F.w, F.ph, F.ph / 2), T.cta, T.shadow, strip ? Math.max(1.5, F.s * .12) : Math.max(2, F.s * .16));
     drawLines(ctx, F.b, font('black', F.s), F.s, 1.05, x + F.s * .8, y + F.s * .55, F.w - F.s * 1.6, 'center', T.ctaInk);
+    if (F.ib) drawLines(ctx, F.ib, font('medium', F.is), F.is, 1.25, r.x, y + F.ph + F.s * .4, r.w, tall ? 'center' : 'left', T.ink);
   } };
 }
 
@@ -594,7 +612,7 @@ function placeTall(ctx, L, T) {
 // other sizes: each block centered in its own box; header + button centered together
 function placeBoxes(ctx, L, T) {
   const center = (b, r) => b && b.draw(r.y + (r.h - b.h) / 2);
-  const hdr = headerBlock(ctx, L.header, T, L), cta = L.cta ? ctaBlock(ctx, L.cta, T, L) : null;
+  const hdr = L.header && headerBlock(ctx, L.header, T, L), cta = L.cta ? ctaBlock(ctx, L.cta, T, L) : null;
   if (L.headCol && cta) {
     const col = L.headCol, h = (hdr ? hdr.h + L.colGap : 0) + cta.h, y = col.y + (col.h - h) / 2;
     hdr?.draw(y); cta.draw(y + h - cta.h);
