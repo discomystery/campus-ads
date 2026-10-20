@@ -697,14 +697,16 @@ function stripeHeader(x, w, h, A, B, P, align) {
 function fitNames(w, h, colors, P, align) {
   const C = state.candidates, minP = minText(P);
   const items = (c, color, pre, off) => [
-    pre && c.showPrefix && c.prefix.trim() && { text: c.prefix, role: 'cond', r: .55, lh: 1.05, color, maxLines: 2, gap: 0 },
-    { text: c.last, role: 'heavy', r: 1, lh: 1, color, maxLines: 1, gap: .1 },
-    off && c.showOffice && { text: c.office || c.short, role: 'cond', r: .5, lh: 1.05, color, maxLines: 2, gap: .15 },
+    // like the earlier campaign pieces: a big bold "Judge Christine" sitting tight on the last name
+    pre && c.showPrefix && c.prefix.trim() && { text: c.prefix, role: 'condBold', r: .72, lh: 1, color, maxLines: 2, gap: 0 },
+    { text: c.last, role: 'heavy', r: 1, lh: 1, color, maxLines: 1, gap: .04 },
+    off && c.showOffice && { text: c.office || c.short, role: 'cond', r: .46, lh: 1.05, color, maxLines: 2, gap: .2 },
   ].filter(Boolean);
   for (const [pre, off] of [[true, true], [true, false], [false, false]]) {
     const sets = C.map((c, i) => items(c, colors[i], pre, off));
-    const small = (pre && C.some(c => c.showPrefix)) || (off && C.some(c => c.showOffice));
-    const lo = small ? minP / .5 : minP;
+    // the smallest line in use sets the lowest size worth trying
+    const rs = [pre && C.some(c => c.showPrefix) && .72, off && C.some(c => c.showOffice) && .46].filter(Boolean);
+    const lo = minP / Math.min(1, ...rs);
     const s = search(s => sets.every(it => stackAt(MC, it, w, h, s)) ? s : null, lo, Math.min(h, w * .3, 120));
     if (s) return sets.map(it => { const res = stackAt(MC, it, w, h, s); return { h: res.total, dur: stackDur(res), res, align }; });
   }
@@ -736,7 +738,7 @@ function stripesPlan(P, T) {
     const hdr = stripeHeader(x0, cw - ew - (ew ? pad * .5 : 0), hh - pad * .3, A, B, P, ew ? 'left' : 'center');
     // name on the outer ~58% of each cell, photo tucked against the inner edge
     const cellColor = i => ((i % 2) + (i >> 1)) % 2 ? B : A, tw = qw * .58 - pad;
-    const names = fitNames(tw, ch * .8, C.map((_, i) => inkOn(cellColor(i))), P, 'left');
+    const names = fitNames(tw, ch * .8, C.map((_, i) => inkOn(cellColor(i))), P, 'center');
     if (!hdr || !names) return null;
     bands.push({ x: 0, y: 0, w: W, h: S.t + hh + 1, color: A, from: 'top', t0: 0 });
     put(hdr, S.t + (hh - hdr.h) / 2, t, 'header'); t += hdr.dur * .6;
@@ -765,7 +767,7 @@ function stripesPlan(P, T) {
     const span = S.b - S.t, hh = span * .2, fh = span * .19, rh = (span - hh - fh) / 4, x0 = S.l, cw = S.r - S.l;
     const ew = endOn && cw >= 260 ? cw * .28 : 0;
     const hdr = stripeHeader(x0, cw - ew - (ew ? pad * .5 : 0), hh - pad * .3, A, B, P, ew ? 'left' : 'center');
-    const half = cw * .5, names = fitNames(half - pad * .4, rh * .78, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'left');
+    const half = cw * .5, names = fitNames(half - pad * .4, rh * .78, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'center');
     if (!hdr || !names) return null;
     bands.push({ x: 0, y: 0, w: W, h: S.t + hh + 1, color: A, from: 'top', t0: 0 });
     put(hdr, S.t + (hh - hdr.h) / 2, t, 'header'); t += hdr.dur * .6;
