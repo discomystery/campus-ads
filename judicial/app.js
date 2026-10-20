@@ -53,11 +53,12 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 function freshState() {
   const sizes = {};
   // spread the messages across the sizes so neighbors differ
-  PRESETS.forEach((p, i) => { sizes[p.key] = { endorser: !!p.big, disclaimer: true, batch: p.key !== 'custom', message: i % DEFAULT_MESSAGES.length }; });
+  PRESETS.forEach((p, i) => { sizes[p.key] = { endorser: !!p.big, disclaimer: true, batch: p.key !== 'custom', message: i % DEFAULT_MESSAGES.length, layout: i % 2 ? 'stripes' : 'lineup' }; });
   return {
     size: 'meta45', view: 'single', tab: 'cands',
     messages: DEFAULT_MESSAGES.map(m => ({ ...m })),
     text: {
+      stripeTag: 'Vote for justice!', dayLabel: 'Election Day', date: 'November 3rd',
       sticker: 'It\'s not too late!',
       disclaimer: 'Paid for by [Committee Name]',
     },
@@ -277,6 +278,14 @@ function wrap(ctx, text, f, maxW, fHi) {
   return { lines, over, space, count, maxW: lines.reduce((a, l) => Math.max(a, l.w), 0) };
 }
 const ASC = .76; // cap height-ish, as a share of font size
+/* first-line top for text centered in a pill: measured cap height of the
+   actual font, so tags and buttons sit dead center in any typeface */
+function pillTextTop(f, size, lines, lh, top, h) {
+  MC.font = f;
+  const cap = MC.measureText('H').actualBoundingBoxAscent || size * .7;
+  const base1 = top + h / 2 - (lines - 1) * size * lh / 2 + cap / 2;
+  return base1 - size * ASC;
+}
 const blockH = (n, size, lh) => n ? size * (1 + (n - 1) * lh) : 0;
 const WORD_STEP = .075; // seconds between words as a headline builds
 /* With anim, words arrive one after another: plain words rise into place,
@@ -321,19 +330,21 @@ function search(build, lo, hi) {
 /* A vertical stack of text items, all sized off one base size s.
    Optional items are dropped (last first) when keeping them would shrink
    the main text too much or leave them unreadably small. */
+// lay out a stack at one base size s; null if it doesn't fit w x h
+function stackAt(ctx, use, w, h, s) {
+  let total = 0, maxW = 0; const out = [];
+  for (const it of use) {
+    const size = Math.min(s * it.r, it.cap || 1e9), pad = it.pill ? size * .7 : 0;
+    const f = font(it.role, size), fh = it.hi ? font(it.hiRole || it.role, size) : null, b = wrap(ctx, it.text, f, w - pad * 2, fh);
+    if (b.over || b.lines.length > (it.maxLines || 99)) return null;
+    const bh = blockH(b.lines.length, size, it.lh || 1.15) + (it.pill ? size * .7 : 0), gap = out.length ? s * (it.gap ?? .3) : 0;
+    total += gap + bh; maxW = Math.max(maxW, b.maxW + pad * 2); out.push({ it, size, f, fh, b, h: bh, gap, pad });
+  }
+  return total <= h ? { s, out, total, w, maxW } : null;
+}
 function fitStack(ctx, items, w, h, maxBase) {
   items = items.filter(it => it && it.text && String(it.text).trim());
-  const build = (s, use) => {
-    let total = 0, maxW = 0; const out = [];
-    for (const it of use) {
-      const size = Math.min(s * it.r, it.cap || 1e9), pad = it.pill ? size * .7 : 0;
-      const f = font(it.role, size), fh = it.hi ? font(it.hiRole || it.role, size) : null, b = wrap(ctx, it.text, f, w - pad * 2, fh);
-      if (b.over || b.lines.length > (it.maxLines || 99)) return null;
-      const bh = blockH(b.lines.length, size, it.lh || 1.15) + (it.pill ? size * .7 : 0), gap = out.length ? s * (it.gap ?? .3) : 0;
-      total += gap + bh; maxW = Math.max(maxW, b.maxW + pad * 2); out.push({ it, size, f, fh, b, h: bh, gap, pad });
-    }
-    return total <= h ? { s, out, total, w, maxW } : null;
-  };
+  const build = (s, use) => stackAt(ctx, use, w, h, s);
   const top = Math.min(maxBase || 1e9, h);
   const core = items.filter(i => !i.optional), coreFit = search(s => build(s, core), 2, top);
   let use = items.slice();
@@ -358,7 +369,7 @@ function drawStack(ctx, res, x, y, align, t0) {
       const p = t0 == null ? 1 : prog(t, .45);
       enter(ctx, p, px + pw / 2, yy + o.h / 2, [o.h * 2, 0], popBack, () => {
         ctx.fillStyle = it.pill; ctx.beginPath(); ctx.roundRect(px, yy, pw, o.h, o.h / 2); ctx.fill();
-        drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, px + o.pad, yy + o.size * .35, pw - o.pad * 2, 'center', it.color, hi);
+        drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, px + o.pad, pillTextTop(o.f, o.size, o.b.lines.length, it.lh || 1.15, yy, o.h), pw - o.pad * 2, 'center', it.color, hi);
       });
       t += .2;
     } else {
@@ -611,7 +622,7 @@ function ctaFit(text, x, w, h, fill, fillInk, align, P, maxLines) {
     ctx.globalAlpha *= m === 'pop' ? Math.min(1, p * 3) : EASE.out(p);
     ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(sx, y, pw, F.ph, F.ph / 2); ctx.fill();
     const tp = m === 'pop' ? prog(t0 + .3, .3) : 1;
-    if (tp > 0) { ctx.globalAlpha *= tp; drawLines(ctx, F.b, font('heavy', F.s), F.s, 1.08, px + F.s * .9, y + F.s * .55, F.pw - F.s * 1.8, 'center', fillInk); }
+    if (tp > 0) { ctx.globalAlpha *= tp; drawLines(ctx, F.b, font('heavy', F.s), F.s, 1.08, px + F.s * .9, pillTextTop(font('heavy', F.s), F.s, F.b.lines.length, 1.08, y, F.ph), F.pw - F.s * 1.8, 'center', fillInk); }
     ctx.restore();
   } };
 }
@@ -642,6 +653,121 @@ function spread(rows, y0, h, gap) {
   let y = y0 + extra;
   return rows.map(r => { const at = y; y += r.h + gap + extra; return at; });
 }
+/* ---------- stripes layout ---------- */
+/* The alternative look from the earlier campaign pieces: a header, one colored
+   band per judge (name on one side, photo on the other, alternating sides),
+   and a white footer with the date and poll hours. On wide sizes the bands
+   turn into columns. Returns null when a size is too small for it, and the
+   size falls back to the lineup. */
+const LAYOUTS = { lineup: 'Lineup (judges in a row)', stripes: 'Stripes (a band per judge)' };
+const layoutOf = P => P.layout ?? state.sizes[P.key]?.layout ?? 'lineup';
+const lum = hex => { const [r, g, b] = rgb(hex).map(v => v / 255); return .2126 * r + .7152 * g + .0722 * b; };
+const inkOn = c => lum(c) > .45 ? state.colors.black : state.colors.white;
+const STRIPE_STEP = .3;
+
+function stripeHeader(x, w, h, A, B, P, align) {
+  const t = msgOf(P), m = Math.min(P.w, P.h);
+  const make = head => fitStack(MC, [
+    { text: state.text.stripeTag.toUpperCase(), role: 'heavy', r: .42, color: B, maxLines: 2, lh: 1, gap: 0, optional: true, min: minText(P) },
+    { text: head, role: 'heavy', r: 1, lh: 1, color: inkOn(A), hi: B, gap: .22 },
+  ], w, h, Math.min(w * .13, 110));
+  const long = t.headline.trim() ? make(t.headline) : null, short = t.short.trim() ? make(t.short) : null;
+  const res = long && (!short || long.s >= Math.max(18, m * .06)) ? long : short || long;
+  if (!res || res.out.find(o => o.it.role === 'heavy' && o.it.r === 1).size < minText(P)) return null;
+  return { h: res.total, dur: stackDur(res), draw: (y, t0) => drawStack(DC, res, x, y, align, t0) };
+}
+// the four name stacks share one size; office lines go first, then titles, until it's readable
+function fitNames(w, h, colors, P, align) {
+  const C = state.candidates, minP = minText(P);
+  const items = (c, color, pre, off) => [
+    pre && c.showPrefix && c.prefix.trim() && { text: c.prefix, role: 'cond', r: .55, lh: 1.05, color, maxLines: 2, gap: 0 },
+    { text: c.last, role: 'heavy', r: 1, lh: 1, color, maxLines: 1, gap: .1 },
+    off && c.showOffice && { text: c.office || c.short, role: 'cond', r: .5, lh: 1.05, color, maxLines: 2, gap: .15 },
+  ].filter(Boolean);
+  for (const [pre, off] of [[true, true], [true, false], [false, false]]) {
+    const sets = C.map((c, i) => items(c, colors[i], pre, off));
+    const small = (pre && C.some(c => c.showPrefix)) || (off && C.some(c => c.showOffice));
+    const lo = small ? minP / .5 : minP;
+    const s = search(s => sets.every(it => stackAt(MC, it, w, h, s)) ? s : null, lo, Math.min(h, w * .3, 120));
+    if (s) return sets.map(it => { const res = stackAt(MC, it, w, h, s); return { h: res.total, dur: stackDur(res), res, align }; });
+  }
+  return null;
+}
+function stripesPlan(P, T) {
+  const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {}, M = msgOf(P), C = state.candidates;
+  const A = T.disc, B = T.band, white = state.colors.white, black = state.colors.black, blue = state.colors.blue;
+  const pad = Math.round(clamp(m * .06, 5, 56)), items = [], bands = [];
+  const put = (b, y, t0) => b && items.push({ b, y, t0 });
+  const at = (b, x) => b && { ...b, draw: (y, t0) => drawStack(DC, b.res, x, y, b.align, t0) };
+  const S = P.safe ? { t: H * P.safe.t, b: H * (1 - P.safe.b), l: W * P.safe.l, r: W * (1 - P.safe.r) } : { t: pad * .5, b: H - pad * .5, l: pad, r: W - pad };
+  const discOn = cfg.disclaimer && state.text.disclaimer.trim(), endOn = cfg.endorser && state.endorser.name.trim();
+  const footItems = (big) => [
+    big && { text: state.text.dayLabel.toUpperCase(), role: 'heavy', r: .42, color: blue, maxLines: 1, lh: 1, gap: 0, optional: true, min: minText(P) },
+    { text: state.text.date, role: 'heavy', r: 1, color: black, maxLines: 2, lh: 1, gap: .15 },
+    { text: M.cta, role: 'heavy', r: .42, color: blue, maxLines: 2, lh: 1.1, gap: .2 }, // the poll hours always stay
+  ];
+  let t = .25;
+  const photoBlock = (i, x, d, rowBottom, disc) => ({ h: d * POP, draw: (y, t0) => {
+    const ctx = DC, rise = state.motion === 'fade' ? 1 : prog(t0 + .1, .6);
+    enter(ctx, prog(t0, .45), x + d / 2, y + d * POP - d / 2, [0, d * .4], popBack, () => drawCutout(ctx, i, x, y, d, disc, inkOn(disc), rise));
+  } });
+
+  if (H / W >= .45) {
+    // rows: header, four judge bands, footer
+    const span = S.b - S.t, hh = span * .2, fh = span * .19, rh = (span - hh - fh) / 4, x0 = S.l, cw = S.r - S.l;
+    const ew = endOn && cw >= 260 ? cw * .28 : 0;
+    const hdr = stripeHeader(x0, cw - ew - (ew ? pad * .5 : 0), hh - pad * .3, A, B, P, ew ? 'left' : 'center');
+    const half = cw * .5, names = fitNames(half - pad * .4, rh * .78, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'left');
+    if (!hdr || !names) return null;
+    bands.push({ x: 0, y: 0, w: W, h: S.t + hh, color: A, from: 'top', t0: 0 });
+    put(hdr, S.t + (hh - hdr.h) / 2, t); t += hdr.dur * .6;
+    if (ew) { const e = endBlock(S.r - ew, ew, hh * .92, { ...T, disc: B }, inkOn(A), 'stack', P); if (e) put(e, S.t + (hh - e.h) / 2, t + .2); }
+    C.forEach((c, i) => {
+      const y = S.t + hh + i * rh, color = i % 2 ? B : A, textRight = i % 2 === 0, t0 = .35 + i * STRIPE_STEP;
+      bands.push({ x: 0, y: i === 3 ? y : y, w: W, h: rh + (i === 3 ? 0 : 1), color, from: textRight ? 'right' : 'left', t0 });
+      const nx = textRight ? x0 + half + pad * .2 : x0 + pad * .2, nb = names[i];
+      put(at(nb, nx), y + (rh - nb.h) / 2, t0 + .25);
+      if (usePhotos()) {
+        const d = Math.min(rh * .9, half * .8), px = (textRight ? x0 : x0 + half) + (half - d) / 2;
+        const top = y + rh - d * POP - (state.frame === 'none' ? 0 : rh * .04);
+        put(photoBlock(i, px, d, y + rh, textRight ? B : A), top, t0 + .3);
+      }
+      t = t0 + .9;
+    });
+    // footer
+    const fy = S.t + hh + 4 * rh, disc = discOn ? discBlock(x0, cw, clamp(H * .018, 10.5, 22), black, 'center') : null;
+    bands.push({ x: 0, y: fy, w: W, h: H - fy, color: white, from: 'bottom', t0: t - .4 });
+    const fres = fitStack(MC, footItems(true), cw, fh - (disc ? disc.h + pad * .3 : 0) - pad * .4, Math.min(cw * .14, 120));
+    if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, x0, y, 'center', t0) }, fy + pad * .3 + (fh - (disc ? disc.h + pad * .3 : 0) - pad * .3 - fres.total) / 2, t - .2);
+    if (disc) put(disc, Math.min(H - pad * .5, S.b) - disc.h, .3);
+    return { fam: 'stripes', bg: white, bands, items, sticker: null, m, end: t + (fres ? stackDur(fres) : 0) };
+  }
+  // columns: header, four judge columns, footer
+  const strip = H <= 120, showHdr = W >= 500;
+  const hw = showHdr ? W * (strip ? .22 : .24) : 0, fw = W * (strip ? .2 : .19), jw = (W - hw - fw) / 4;
+  const vpad = Math.max(4, pad * .6), inner = H - vpad * 2;
+  const hdr = showHdr ? stripeHeader(pad * .7, hw - pad * 1.2, inner, A, B, P, 'left') : null;
+  const photoD = usePhotos() && !strip ? Math.min(jw * .8, H * .5) : 0;
+  const names = fitNames(jw - pad * .5, photoD ? inner - photoD * POP - vpad : inner, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'center');
+  if ((showHdr && !hdr) || !names) return null;
+  if (hw) bands.push({ x: 0, y: 0, w: hw + 1, h: H, color: A, from: 'top', t0: 0 });
+  if (hdr) { put(hdr, vpad + (inner - hdr.h) / 2, t); t += hdr.dur * .6; }
+  C.forEach((c, i) => {
+    const x = hw + i * jw, color = i % 2 ? B : A, t0 = .35 + i * STRIPE_STEP, nb = names[i];
+    bands.push({ x, y: 0, w: jw + 1, h: H, color, from: i % 2 ? 'bottom' : 'top', t0 });
+    const blockH = nb.h + (photoD ? photoD * POP + vpad * .5 : 0), y0 = photoD ? vpad : vpad + (inner - nb.h) / 2;
+    put(at(nb, x + pad * .25), y0, t0 + .25);
+    if (photoD) put(photoBlock(i, x + (jw - photoD) / 2, photoD, H, i % 2 ? A : B), H - photoD * POP - (state.frame === 'none' ? 0 : vpad * .5), t0 + .3);
+    t = t0 + .9;
+  });
+  const fx = W - fw, disc = discOn ? discBlock(fx + pad * .3, fw - pad * .6, clamp(H * (strip ? .13 : .05), 7, 14), black, 'center') : null;
+  bands.push({ x: fx, y: 0, w: fw, h: H, color: white, from: 'right', t0: t - .4 });
+  const fres = fitStack(MC, footItems(!strip), fw - pad * .6, inner - (disc ? disc.h + vpad * .3 : 0), Math.min(fw * .2, 90));
+  if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, fx + pad * .3, y, 'center', t0) }, vpad + (inner - (disc ? disc.h + vpad * .3 : 0) - fres.total) / 2, t - .2);
+  if (disc) put(disc, H - vpad - disc.h, .3);
+  return { fam: 'stripes', bg: white, bands, items, sticker: null, m, end: t + (fres ? stackDur(fres) : 0) };
+}
+
 /* Works out where every block goes and when it animates in. Returns the
    band (the colored strip the judges stand in), the blocks with their
    positions and start times, and when the intro ends. Plans are cached:
@@ -650,7 +776,7 @@ function spread(rows, y0, h, gap) {
 const planCache = new Map();
 let planVersion = 0;
 function plan(P, T) {
-  const key = `${P.key}|${P.w}x${P.h}|${T.name}|${msgIndex(P)}|${planVersion}`;
+  const key = `${P.key}|${P.w}x${P.h}|${T.name}|${msgIndex(P)}|${layoutOf(P)}|${planVersion}`;
   if (planCache.has(key)) return planCache.get(key);
   if (planCache.size > 60) planCache.clear();
   const L = makePlan(P, T);
@@ -658,6 +784,7 @@ function plan(P, T) {
   return L;
 }
 function makePlan(P, T) {
+  if (layoutOf(P) === 'stripes') { const S = stripesPlan(P, T); if (S) return S; }
   const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {};
   const pad = Math.round(clamp(m * .06, 5, 64));
   const r = P.safe ? { x: W * P.safe.l, y: H * P.safe.t, w: W * (1 - P.safe.l - P.safe.r), h: H * (1 - P.safe.t - P.safe.b) }
@@ -726,7 +853,7 @@ function makePlan(P, T) {
     if (c2) { put(c2, r.y + (r.h - c2.h) / 2, t - .2); t += c2.dur - .2; }
     if (discH) put(discBlock(r.x, leftW, discH * .8, T.ink, 'left'), r.y + r.h - discH, .3);
   }
-  return { fam, band, items, sticker, m, end: t };
+  return { fam, bg: T.top, bands: band ? [{ ...band, color: T.band, t0: 0 }] : [], items, sticker, m, end: t };
 }
 
 /* ---------- drawing ---------- */
@@ -735,7 +862,7 @@ function drawPattern(ctx, P, T, L) {
   // patterns drift slowly while the ad plays
   const drift = Number.isFinite(NOW) ? NOW : 0;
   if (state.pattern === 'burst') {
-    const cx = W / 2, cy = L.band ? L.band.y : H, R = Math.hypot(W, H), n = 32, rot = drift * .05;
+    const cx = W / 2, cy = L.bands[0] ? L.bands[0].y : H, R = Math.hypot(W, H), n = 32, rot = drift * .05;
     ctx.fillStyle = tone;
     for (let i = 0; i < n; i += 2) {
       const a0 = rot + i * Math.PI * 2 / n, a1 = rot + (i + 1) * Math.PI * 2 / n;
@@ -765,6 +892,17 @@ function drawSticker(ctx, S, T) {
   ctx.restore();
 }
 
+// a band sweeps in from one side (or fades in)
+function drawBand(ctx, P, b) {
+  const p = EASE.out(prog(b.t0, .65));
+  if (p <= 0) return;
+  ctx.fillStyle = b.color;
+  if (state.motion === 'fade') { ctx.save(); ctx.globalAlpha = p; ctx.fillRect(b.x, b.y, b.w, b.h); ctx.restore(); return; }
+  if (b.from === 'left') ctx.fillRect(b.x, b.y, b.w * p, b.h);
+  else if (b.from === 'top') ctx.fillRect(b.x, b.y, b.w, b.h * p);
+  else if (b.from === 'right') ctx.fillRect(b.x + b.w * (1 - p), b.y, b.w * p, b.h);
+  else ctx.fillRect(b.x, b.y + b.h * (1 - p), b.w, b.h * p);
+}
 /* t is seconds into the animation (Infinity = the finished ad). If the
    intro is longer than the chosen length allows, it plays faster. */
 function render(ctx, P, k, editor, t = Infinity) {
@@ -774,15 +912,9 @@ function render(ctx, P, k, editor, t = Infinity) {
   const speed = Math.max(1, L.end / Math.max(1, state.duration - 1.5));
   NOW = state.motion === 'none' ? Infinity : t * speed; DC = ctx;
   try {
-    ctx.fillStyle = T.top; ctx.fillRect(0, 0, P.w, P.h);
-    drawPattern(ctx, P, T, L);
-    if (L.band) {
-      const p = EASE.out(prog(0, .7)), b = L.band;
-      ctx.fillStyle = T.band;
-      if (state.motion === 'fade') { ctx.globalAlpha = p; ctx.fillRect(b.x, b.y, b.w, b.h); ctx.globalAlpha = 1; }
-      else if (b.from === 'right') ctx.fillRect(P.w - (P.w - b.x) * p, b.y, b.w, b.h);
-      else ctx.fillRect(b.x, P.h - (P.h - b.y) * p, b.w, b.h);
-    }
+    ctx.fillStyle = L.bg; ctx.fillRect(0, 0, P.w, P.h);
+    if (L.fam !== 'stripes') drawPattern(ctx, P, T, L);
+    for (const b of L.bands) drawBand(ctx, P, b);
     L.items.forEach(it => it.b.draw(it.y, it.t0));
     if (L.sticker?.cx) drawSticker(ctx, L.sticker, T);
     // optional fade at the very end so a looping video starts again cleanly
@@ -856,7 +988,7 @@ function drawGrid() {
   if (grid.children.length !== PRESETS.length) {
     grid.innerHTML = PRESETS.map(p => `<button class="ad-card" data-key="${p.key}"><canvas></canvas><div><b>${esc(p.name)}</b> <span></span></div></button>`).join('');
     $$('.ad-card', grid).forEach(b => {
-      b.onclick = () => { state.size = b.dataset.key; playT = 0; setView('single'); renderSizeList(); renderMessages(); bindAll(); save(); };
+      b.onclick = () => { state.size = b.dataset.key; playT = 0; setView('single'); renderSizeList(); renderMessages(); renderLayouts(); bindAll(); save(); };
       b.onmouseenter = () => playCard(b);
     });
   }
@@ -868,7 +1000,7 @@ function drawCard(card, t) {
   if (c.width !== Math.round(P.w * k * dpr)) { c.width = Math.round(P.w * k * dpr); c.height = Math.round(P.h * k * dpr); }
   c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
   render(c.getContext('2d'), P, k * dpr, false, t);
-  $('span', card).textContent = `${P.w}×${P.h} · message ${LETTERS[msgIndex(P)]}`;
+  $('span', card).textContent = `${P.w}×${P.h} · ${layoutOf(P)} · message ${LETTERS[msgIndex(P)]}`;
   card.classList.toggle('active', P.key === state.size);
 }
 function playCard(card) {
@@ -983,6 +1115,17 @@ function renderMessages() {
   $('#msgPick').innerHTML = opts(msgIndex(presetOf(state.size)));
   bindAll();
 }
+function renderLayouts() {
+  const opts = sel => Object.entries(LAYOUTS).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('');
+  $('#layoutSizes').innerHTML = PRESETS.map(p => `<span>${esc(p.name)}</span><select data-layout-size="${p.key}">${opts(layoutOf(p))}</select>`).join('');
+  $$('#layoutSizes select').forEach(el => el.onchange = () => { state.sizes[el.dataset.layoutSize].layout = el.value; save(); renderLayouts(); redraw(); });
+  $('#layoutPick').innerHTML = opts(layoutOf(presetOf(state.size)));
+}
+$('#layoutPick').onchange = e => { state.sizes[state.size].layout = e.target.value; save(); renderLayouts(); redraw(); };
+$$('[data-layout-all]').forEach(b => b.onclick = () => {
+  PRESETS.forEach((p, i) => { state.sizes[p.key].layout = b.dataset.layoutAll === 'mix' ? (i % 2 ? 'stripes' : 'lineup') : b.dataset.layoutAll; });
+  save(); renderLayouts(); redraw();
+});
 $('#msgPick').onchange = e => { state.sizes[state.size].message = +e.target.value; save(); renderMessages(); redraw(); };
 $('#addMsg').onclick = () => { state.messages.push({ ...state.messages[state.messages.length - 1] }); save(); renderMessages(); bindAll(); };
 $('#msgSpread').onclick = () => { PRESETS.forEach((p, i) => { state.sizes[p.key].message = i % state.messages.length; }); save(); renderMessages(); redraw(); };
@@ -998,7 +1141,7 @@ function renderSizeList() {
       <span><span class="nm">${esc(P.name)}</span>${cfg.endorser ? ' <span class="tagp">● photo</span>' : ''}</span><span class="dim">${P.w}×${P.h}</span></button></li>`;
   }
   $('#sizeList').innerHTML = html;
-  $$('#sizeList button[data-key]').forEach(b => b.onclick = () => { state.size = b.dataset.key; playT = 0; save(); renderSizeList(); renderMessages(); bindAll(); setView('single'); });
+  $$('#sizeList button[data-key]').forEach(b => b.onclick = () => { state.size = b.dataset.key; playT = 0; save(); renderSizeList(); renderMessages(); renderLayouts(); bindAll(); setView('single'); });
   $$('#sizeList input[data-batch]').forEach(b => b.onchange = () => { state.sizes[b.dataset.batch].batch = b.checked; save(); renderSizeToggles(); });
   $('#customBox').hidden = state.size !== 'custom';
 }
@@ -1311,7 +1454,7 @@ $('#resetAll').onclick = () => { if (confirm('Reset all text, candidates, photo,
 /* ---------- boot ---------- */
 $('#motionPick').innerHTML = Object.entries(MOTIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
 function initUI() {
-  renderCandFields(); renderMessages(); bindAll(); renderSizeList(); renderSizeToggles(); renderThemes();
+  renderCandFields(); renderMessages(); renderLayouts(); bindAll(); renderSizeList(); renderSizeToggles(); renderThemes();
   $('#customW').value = state.custom.w; $('#customH').value = state.custom.h;
   $('#kitInput').value = state.font.kit;
   $$('.tab').find(t => t.dataset.tab === state.tab)?.click();

@@ -46,7 +46,7 @@
       <input id="scrub" type="range" min="0" max="1000" value="0">
       <span id="timeRead" class="mono">0.0s</span>
     </div>
-    <div class="size-info"><span id="sizeInfo"></span> · <label class="inline">Message <select id="msgPick"></select></label></div>
+    <div class="size-info"><span id="sizeInfo"></span> · <label class="inline">Layout <select id="layoutPick"></select></label> · <label class="inline">Message <select id="msgPick"></select></label></div>
     <div class="warn" id="warnings"></div>
   </section>
 
@@ -82,6 +82,12 @@
       <button id="addMsg" class="ghost">+ Add a message</button>
       <div class="bx-head"><b>Which message each size uses</b><span class="bx-links"><button id="msgSpread">Spread them out</button><button id="msgAllA">All use A</button></span></div>
       <div id="msgSizes" class="msg-sizes"></div>
+      <h3>Stripes layout</h3>
+      <div class="row2">
+        <label>Header tag<input type="text" data-bind="text.stripeTag"></label>
+        <label>Footer label<input type="text" data-bind="text.dayLabel"></label>
+      </div>
+      <label>Footer date <span class="hint">(the button text goes under it)</span><input type="text" data-bind="text.date"></label>
       <h3>Every size</h3>
       <label>Sticker <span class="hint">(starburst on tall feed sizes, if turned on in Style)</span>
         <input type="text" data-bind="text.sticker">
@@ -116,6 +122,10 @@
     </div>
 
     <div class="tab-body" data-body="style" hidden>
+      <h3>Layout</h3>
+      <p class="hint"><b>Lineup</b>: headline up top, judges standing in a row on the band. <b>Stripes</b>: a colored band per judge with the name on one side and the photo on the other, and a footer with the date (it turns into columns on wide banners).</p>
+      <div class="bx-head"><b>Which layout each size uses</b><span class="bx-links"><button data-layout-all="mix">Mix</button><button data-layout-all="lineup">All lineup</button><button data-layout-all="stripes">All stripes</button></span></div>
+      <div id="layoutSizes" class="msg-sizes"></div>
       <h3>Motion</h3>
       <div class="row2">
         <label>Animation style<select data-bind="motion" id="motionPick"></select></label>
