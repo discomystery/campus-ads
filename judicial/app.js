@@ -421,7 +421,7 @@ function drawPhoto(ctx, cx, cy, d, ring, ink) {
   if (photoImg) {
     const E = state.endorser, s = Math.max(i / photoImg.width, i / photoImg.height) * E.zoom;
     const iw = photoImg.width * s, ih = photoImg.height * s;
-    ctx.drawImage(photoImg, cx - iw / 2 - E.x * (iw - i) / 2, cy - ih / 2 - E.y * (ih - i) / 2, iw, ih);
+    ctx.drawImage(photoImg, cx - iw / 2 + E.x * i * .5, cy - ih / 2 + E.y * i * .5, iw, ih);
   } else {
     ctx.fillStyle = '#d9dbe3'; ctx.fillRect(cx - i / 2, cy - i / 2, i, i);
     ctx.fillStyle = rgba(ink, .25);
@@ -455,7 +455,7 @@ function drawCutout(ctx, i, x, y, d, disc, ink, rise = 1) {
   ctx.beginPath();
   if (frame === 'none') ctx.rect(x - d * 4, y - h * 4, d * 9, h * 5); // the whole cutout shows; only the bottom edge it stands on trims it
   else {
-    ctx.rect(x - R * .15, y, d + R * .3, cy - y);
+    ctx.rect(x - R * .15, y - h * 1.5, d + R * .3, cy - y + h * 1.5);
     if (frame === 'circle') ctx.arc(cx, cy, R, 0, Math.PI * 2); else ctx.roundRect(x, cy - R, d, d, frame === 'square' ? d * .16 : 0);
   }
   ctx.clip();
@@ -1181,9 +1181,9 @@ function renderCandFields() {
     <div class="cand-photo"><canvas width="120" height="140" data-thumb="${i}"></canvas>
       <div><div class="btn-row"><label class="ghost file-btn sm">${c.photo ? 'Replace photo' : 'Upload photo'}<input type="file" accept="image/*" data-photo="${i}" hidden></label>
         ${c.photo ? `<button class="ghost sm" data-clear="${i}">Remove</button>` : ''}</div>
-      <div class="prop"><span>Zoom</span><input type="range" min="0.5" max="2" step="0.01" data-bind="candidates.${i}.zoom"><output data-out="candidates.${i}.zoom"></output></div>
-      <div class="prop"><span>Left / right</span><input type="range" min="-1" max="1" step="0.01" data-bind="candidates.${i}.x"><output data-out="candidates.${i}.x"></output></div>
-      <div class="prop"><span>Up / down</span><input type="range" min="-1" max="1" step="0.01" data-bind="candidates.${i}.y"><output data-out="candidates.${i}.y"></output></div></div></div></div>`).join('');
+      <div class="prop"><span>Zoom</span><input type="range" min="0.3" max="3" step="0.01" data-bind="candidates.${i}.zoom"><output data-out="candidates.${i}.zoom"></output></div>
+      <div class="prop"><span>Left / right</span><input type="range" min="-3" max="3" step="0.01" data-bind="candidates.${i}.x"><output data-out="candidates.${i}.x"></output></div>
+      <div class="prop"><span>Up / down</span><input type="range" min="-3" max="3" step="0.01" data-bind="candidates.${i}.y"><output data-out="candidates.${i}.y"></output></div></div></div></div>`).join('');
   $$('#candFields input[data-photo]').forEach(el => el.onchange = e => {
     const f = e.target.files[0]; if (f) readCutout(f, url => { Object.assign(state.candidates[+el.dataset.photo], { photo: url, zoom: 1, x: 0, y: 0 }); save(); renderCandFields(); bindAll(); loadCandPhotos(); });
   });
