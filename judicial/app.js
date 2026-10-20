@@ -53,11 +53,12 @@ function freshState() {
       disclaimer: 'Paid for by [Committee Name]',
     },
     upper: true,
+    candPhotos: true,
     candidates: [
-      { seat: 'N.C. Supreme Court · Associate Justice', short: 'Supreme Court', name: 'Candidate One' },
-      { seat: 'N.C. Court of Appeals · Seat 1', short: 'Court of Appeals', name: 'Candidate Two' },
-      { seat: 'N.C. Court of Appeals · Seat 2', short: 'Court of Appeals', name: 'Candidate Three' },
-      { seat: 'N.C. Court of Appeals · Seat 3', short: 'Court of Appeals', name: 'Candidate Four' },
+      { seat: 'N.C. Supreme Court · Associate Justice', short: 'Supreme Court', name: 'Candidate One', photo: null, zoom: 1, x: 0, y: 0 },
+      { seat: 'N.C. Court of Appeals · Seat 1', short: 'Court of Appeals', name: 'Candidate Two', photo: null, zoom: 1, x: 0, y: 0 },
+      { seat: 'N.C. Court of Appeals · Seat 2', short: 'Court of Appeals', name: 'Candidate Three', photo: null, zoom: 1, x: 0, y: 0 },
+      { seat: 'N.C. Court of Appeals · Seat 3', short: 'Court of Appeals', name: 'Candidate Four', photo: null, zoom: 1, x: 0, y: 0 },
     ],
     endorser: {
       photo: null, zoom: 1, x: 0, y: 0,
@@ -302,6 +303,37 @@ function drawPhoto(ctx, cx, cy, d, T) {
   ctx.restore();
 }
 
+/* Candidate cutouts (transparent PNGs, shoulders up) sit on a colored disc
+   with the head popping out over the top of it. */
+const candImgs = [];
+function loadCandPhotos() {
+  state.candidates.forEach((c, i) => {
+    if (!c.photo) { candImgs[i] = null; return; }
+    if (candImgs[i]?.src === c.photo) return;
+    const img = new Image();
+    img.onload = () => { drawCandThumbs(); redraw(); };
+    img.src = c.photo; candImgs[i] = img;
+  });
+  drawCandThumbs(); redraw();
+}
+function drawCutout(ctx, i, x, y, w, h, T) {
+  const c = state.candidates[i], img = candImgs[i]?.complete ? candImgs[i] : null;
+  const R = w / 2, cx = x + R, cy = y + h - R;
+  ctx.fillStyle = T.accent; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x - R * .15, y, w + R * .3, cy - y); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+  if (img) {
+    // fit by height so the top of the head touches the top of the box at zoom 1
+    const s = h * c.zoom / img.height, iw = img.width * s, ih = img.height * s;
+    ctx.drawImage(img, cx - iw / 2 + c.x * w * .5, y + h - ih + c.y * h * .5, iw, ih);
+  } else {
+    ctx.fillStyle = rgba(T.accentInk, .25);
+    ctx.beginPath(); ctx.arc(cx, y + h * .36, w * .22, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx, y + h * .98, w * .42, h * .34, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
 /* ---------- layout ---------- */
 function family(P, r) {
   if (P.h <= 120 || r.h / r.w < .2) return 'strip';
@@ -408,14 +440,19 @@ function headerBlock(ctx, r, T, L) {
   return res && { h: res.total, draw: y => drawStack(ctx, res, r.x, y, 'left') };
 }
 
-function buildCands(ctx, r, n, cols, seats, title) {
+// candidate photo height as a multiple of the name size (beside the name, or stacked above it); smallest worth showing
+const PHOTO_H = 3.2, PHOTO_STACK_H = 4.6, PHOTO_MIN = 34;
+function buildCands(ctx, r, n, cols, seats, title, photos, stack) {
   const m = n * .5;
   if (seats && m < 6.5) return null;
   const ts = clamp(n * .42, 6.5, 40);
   if (title && n * .42 < 6.5) return null;
+  const ph = photos ? n * (stack ? PHOTO_STACK_H : PHOTO_H) : 0, pw = ph * .8, pg = photos ? n * .5 : 0;
+  if (photos && ph < PHOTO_MIN) return null;
   const pad = n * .62, gapX = n * .9, gapY = n * .7, titleH = title ? ts * 2.1 : 0;
   const ow = n * 1.15, oh = n * .74, og = n * .48;
-  const cellW = (r.w - pad * 2 - gapX * (cols - 1)) / cols, tw = cellW - ow - og;
+  const cellW = (r.w - pad * 2 - gapX * (cols - 1)) / cols, tw = cellW - (stack ? 0 : pw + pg) - ow - og;
+  if (stack && pw > cellW) return null;
   if (tw <= 4) return null;
   const names = state.candidates.map(c => wrap(ctx, c.name, font('black', n), tw));
   if (names.some(nb => nb.over || nb.lines.length > 2)) return null;
@@ -425,7 +462,7 @@ function buildCands(ctx, r, n, cols, seats, title) {
     const tryMode = (key, maxLines) => {
       const out = state.candidates.map(c => {
         const t = (c[key].trim() || c.seat.trim() || c.short.trim()).toUpperCase();
-        return t ? wrap(ctx, t, font('bold', m), tw) : { lines: [] };
+        return t ? wrap(ctx, t, font('bold', m), stack ? cellW : tw) : { lines: [] };
       });
       return out.every(b => !b.over && b.lines.length <= maxLines) ? out : null;
     };
@@ -434,27 +471,36 @@ function buildCands(ctx, r, n, cols, seats, title) {
   }
   const cells = names.map((nb, i) => {
     const sb = offices[i]?.lines.length ? offices[i] : null, sh = sb ? blockH(sb.lines.length, m, 1.15) + m * .45 : 0;
-    return { nb, sb, sh, h: sh + blockH(nb.lines.length, n, 1.02) };
+    const th = sh + blockH(nb.lines.length, n, 1.02);
+    return { nb, sb, sh, th, h: stack ? ph + n * .45 + th : Math.max(th, ph) };
   });
   const rows = Math.ceil(cells.length / cols), rowH = [];
   for (let i = 0; i < rows; i++) rowH.push(Math.max(...cells.slice(i * cols, i * cols + cols).map(c => c.h)));
   const total = titleH + pad * 2 + rowH.reduce((a, b) => a + b, 0) + gapY * (rows - 1);
-  return total <= r.h ? { n, m, ts, pad, gapX, gapY, titleH, ow, oh, og, cellW, cols, rows, rowH, cells, total, title, seats } : null;
+  return total <= r.h ? { n, m, ts, pad, gapX, gapY, titleH, ow, oh, og, ph, pw, pg, cellW, cols, rows, rowH, cells, total, title, seats, photos, stack } : null;
 }
-/* Office lines win whenever they fit at a readable size; then the card title;
-   then whichever column count gives the biggest names. */
+const usePhotos = () => state.candPhotos && state.candidates.some(c => c.photo);
+/* Candidate photos win whenever they fit at a useful size; then office lines
+   at a readable size; then the card title; then the biggest names. */
 function fitCands(ctx, r, allowTitle) {
   const ar = r.w / r.h, colsOpts = [1, 2, 4].filter(c => c === 1 || (c === 2 && ar > .85) || (c === 4 && ar > 2.6));
   const fits = [];
-  for (const seats of [true, false]) for (const title of allowTitle && state.text.cardTitle.trim() ? [true, false] : [false]) for (const cols of colsOpts) {
-    const res = search(n => buildCands(ctx, r, n, cols, seats, title), seats ? 13 : title ? 15.5 : 4, Math.min(r.h * .3, r.w * (cols === 1 ? .16 : .1), 76));
+  const modes = usePhotos() ? [[true, false], [true, true], [false, false]] : [[false, false]];
+  for (const [photos, stack] of modes) for (const seats of [true, false])
+  for (const title of allowTitle && state.text.cardTitle.trim() ? [true, false] : [false]) for (const cols of colsOpts) {
+    const lo = Math.max(4, seats ? 13 : 0, title ? 15.5 : 0, photos ? PHOTO_MIN / (stack ? PHOTO_STACK_H : PHOTO_H) : 0);
+    const res = search(n => buildCands(ctx, r, n, cols, seats, title, photos, stack), lo, Math.min(r.h * .3, r.w * (cols === 1 ? .16 : .1), 76));
     if (res) fits.push(res);
   }
-  const top = list => list.reduce((a, b) => (!a || b.n > a.n ? b : a), null);
-  const withSeats = fits.filter(f => f.seats && f.m >= 7);
-  const pool = withSeats.length ? withSeats : fits.filter(f => !f.seats);
+  // with photos, weigh face size and name size together
+  const size = f => f.photos ? f.n * Math.sqrt(f.ph) : f.n;
+  const top = list => list.reduce((a, b) => (!a || size(b) > size(a) ? b : a), null);
+  const withPhotos = fits.filter(f => f.photos && f.n >= 11); // never trade readable names for faces
+  let pool = withPhotos.length ? withPhotos : fits;
+  const withSeats = pool.filter(f => f.seats && f.m >= 7);
+  pool = withSeats.length ? withSeats : pool.filter(f => !f.seats);
   const best = top(pool), titled = top(pool.filter(f => f.title));
-  return titled && best && titled.n >= best.n * .75 ? titled : best;
+  return titled && best && size(titled) >= size(best) * .75 ? titled : best;
 }
 function candsBlock(ctx, r, T, L) {
   const F = fitCands(ctx, r, L.fam !== 'strip');
@@ -479,10 +525,22 @@ function candsBlock(ctx, r, T, L) {
       for (let col = 0; col < F.cols; col++) {
         const cell = F.cells[row * F.cols + col];
         if (!cell) continue;
-        const cx = x + F.pad + col * (F.cellW + F.gapX), tx = cx + F.ow + F.og, tw = F.cellW - F.ow - F.og;
-        if (cell.sb) drawLines(ctx, cell.sb, font('bold', F.m), F.m, 1.15, tx, cy, tw, 'left', rgba(T.cardInk, .72));
-        const ny = cy + cell.sh;
-        drawLines(ctx, cell.nb, font('black', F.n), F.n, 1.02, tx, ny, tw, 'left', T.cardInk);
+        const i = row * F.cols + col, rowH = F.rowH[row], px = x + F.pad + col * (F.cellW + F.gapX);
+        let cx, tx, tw, ty, ny;
+        if (F.stack) { // face on top, office and name centered underneath
+          drawCutout(ctx, i, px + (F.cellW - F.pw) / 2, cy, F.pw, F.ph, T);
+          ty = cy + F.ph + F.n * .45;
+          if (cell.sb) drawLines(ctx, cell.sb, font('bold', F.m), F.m, 1.15, px, ty, F.cellW, 'center', rgba(T.cardInk, .72));
+          tw = cell.nb.maxW; cx = px + (F.cellW - (F.ow + F.og + tw)) / 2; tx = cx + F.ow + F.og; ny = ty + cell.sh;
+          drawLines(ctx, cell.nb, font('black', F.n), F.n, 1.02, tx, ny, tw, 'center', T.cardInk);
+        } else {
+          cx = px + F.pw + F.pg; tx = cx + F.ow + F.og; tw = F.cellW - F.pw - F.pg - F.ow - F.og;
+          if (F.photos) drawCutout(ctx, i, px, cy + (rowH - F.ph) / 2, F.pw, F.ph, T);
+          ty = F.photos ? cy + (rowH - cell.th) / 2 : cy;
+          if (cell.sb) drawLines(ctx, cell.sb, font('bold', F.m), F.m, 1.15, tx, ty, tw, 'left', rgba(T.cardInk, .72));
+          ny = ty + cell.sh;
+          drawLines(ctx, cell.nb, font('black', F.n), F.n, 1.02, tx, ny, tw, 'left', T.cardInk);
+        }
         // a filled-in ballot oval, lined up with the name
         ctx.save(); ctx.translate(cx + F.ow / 2, ny + F.n * ASC / 2);
         ctx.fillStyle = T.oval; ctx.beginPath(); ctx.ellipse(F.n * .03, F.n * .02, F.ow * .44, F.oh * .42, -.12, 0, Math.PI * 2); ctx.fill();
@@ -656,6 +714,7 @@ function drawSingle() {
   $('#sizeInfo').innerHTML = `<b>${esc(P.name)}</b> · ${P.w}×${P.h}px · shown at ${Math.round(k * 100)}%${P.note ? ` · ${esc(P.note)}` : ''}`;
   const warn = [];
   if (state.sizes[P.key]?.endorser && !state.endorser.photo) warn.push('No endorser photo yet: add one on the Endorser tab.');
+  if (usePhotos() && state.candidates.some(c => !c.photo)) warn.push('Some candidates have no photo yet.');
   if (/\[|candidate (one|two|three|four)|endorser name/i.test(JSON.stringify([state.text, state.candidates, state.endorser.name]))) warn.push('Placeholder text is still in the ad.');
   if (!state.sizes[P.key]?.disclaimer || !state.text.disclaimer.trim()) warn.push('No disclaimer on this size.');
   $('#warnings').textContent = warn.join(' ');
@@ -697,6 +756,7 @@ function bindAll() {
       if (p.startsWith('font.')) warmFonts();
       if (p.startsWith('colors.') || p === 'theme') renderThemes();
       if (p.startsWith('endorser.')) drawThumb();
+      if (p.startsWith('candidates.')) drawCandThumbs();
       save(); redraw();
     };
   });
@@ -706,7 +766,44 @@ function renderCandFields() {
   $('#candFields').innerHTML = state.candidates.map((c, i) => `<div class="cand"><b>${i + 1} · ${labels[i]}</b>
     <label>Name<input type="text" data-bind="candidates.${i}.name"></label>
     <label>Office<input type="text" data-bind="candidates.${i}.seat"></label>
-    <label>Short office <span class="hint">(for small sizes)</span><input type="text" data-bind="candidates.${i}.short"></label></div>`).join('');
+    <label>Short office <span class="hint">(for small sizes)</span><input type="text" data-bind="candidates.${i}.short"></label>
+    <div class="cand-photo"><canvas width="120" height="140" data-thumb="${i}"></canvas>
+      <div><div class="btn-row"><label class="ghost file-btn sm">${c.photo ? 'Replace photo' : 'Upload photo'}<input type="file" accept="image/*" data-photo="${i}" hidden></label>
+        ${c.photo ? `<button class="ghost sm" data-clear="${i}">Remove</button>` : ''}</div>
+      <div class="prop"><span>Zoom</span><input type="range" min="0.5" max="2" step="0.01" data-bind="candidates.${i}.zoom"><output data-out="candidates.${i}.zoom"></output></div>
+      <div class="prop"><span>Left / right</span><input type="range" min="-1" max="1" step="0.01" data-bind="candidates.${i}.x"><output data-out="candidates.${i}.x"></output></div>
+      <div class="prop"><span>Up / down</span><input type="range" min="-1" max="1" step="0.01" data-bind="candidates.${i}.y"><output data-out="candidates.${i}.y"></output></div></div></div></div>`).join('');
+  $$('#candFields input[data-photo]').forEach(el => el.onchange = e => {
+    const f = e.target.files[0]; if (f) readCutout(f, url => { Object.assign(state.candidates[+el.dataset.photo], { photo: url, zoom: 1, x: 0, y: 0 }); save(); renderCandFields(); bindAll(); loadCandPhotos(); });
+  });
+  $$('#candFields button[data-clear]').forEach(b => b.onclick = () => { state.candidates[+b.dataset.clear].photo = null; save(); renderCandFields(); bindAll(); loadCandPhotos(); });
+}
+function drawCandThumbs() {
+  const T = themeFor(presetOf(state.size));
+  $$('#candFields canvas[data-thumb]').forEach(c => {
+    const ctx = c.getContext('2d'); ctx.clearRect(0, 0, c.width, c.height);
+    drawCutout(ctx, +c.dataset.thumb, 10, 6, 100, 125, T);
+  });
+}
+/* keep transparency, trim empty margins so every cutout's shoulders sit on the bottom edge */
+function readCutout(file, done) {
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    const s = Math.min(1, 700 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+    c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+    for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 16) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    let out = c;
+    if (x1 >= 0 && (x0 > 0 || y0 > 0 || x1 < c.width - 1 || y1 < c.height - 1)) {
+      out = document.createElement('canvas'); out.width = x1 - x0 + 1; out.height = y1 - y0 + 1;
+      out.getContext('2d').drawImage(c, -x0, -y0);
+    }
+    URL.revokeObjectURL(url); done(out.toDataURL('image/png'));
+  };
+  img.onerror = () => alert('That file could not be opened as an image.');
+  img.src = url;
 }
 function renderSizeList() {
   let html = '', grp = '';
@@ -865,7 +962,7 @@ function initUI() {
   $('#customW').value = state.custom.w; $('#customH').value = state.custom.h;
   $('#kitInput').value = state.font.kit;
   $$('.tab').find(t => t.dataset.tab === state.tab)?.click();
-  setView(state.view); loadPhoto(); fontStatus(); loadKit();
+  setView(state.view); loadPhoto(); loadCandPhotos(); fontStatus(); loadKit();
 }
 window.addEventListener('resize', redraw);
 initUI();

@@ -107,6 +107,12 @@ h3 { font-size: 13px; margin: 18px 0 2px; text-transform: uppercase; letter-spac
 .cand { border: 1px solid var(--line); border-radius: 10px; padding: 2px 10px 10px; margin-top: 10px; background: var(--panel-2); }
 .cand b { display: block; margin-top: 8px; font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
 .cand input { background: var(--panel); }
+.cand-photo { display: grid; grid-template-columns: 70px 1fr; gap: 10px; align-items: start; margin-top: 10px; }
+.cand-photo canvas { width: 70px; height: 82px; border-radius: 8px; background: var(--panel); }
+.cand-photo .prop { grid-template-columns: 70px 1fr 38px; margin-top: 4px; }
+.btn-row { display: flex; gap: 6px; }
+.btn-row > * { margin: 0 !important; }
+label.ghost.sm { width: auto; padding: 7px 10px; font-size: 12px; }
 
 .color-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .color-row input[type=color] { width: 100%; height: 34px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
