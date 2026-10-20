@@ -82,7 +82,7 @@ function freshState() {
     tweaks: {}, // your manual moves and resizes: tweaks[size][layout][element] = { dx, dy, s }
     duration: 8, outro: 'hold', motion: 'pop', pulse: true,
     frame: 'circle', endFrame: 'circle',
-    font: { kit: '', family: 'obviously-variable', css: '', dWeight: '500', hWeight: '800', cWeight: '500', wideW: 150, condW: 75, bodyW: 100 },
+    font: { kit: '', family: 'obviously-variable', css: '', dWeight: '500', hWeight: '800', cWeight: '500', wideW: 150, lastW: 150, condW: 75, bodyW: 100 },
     exp: { kind: 'anim', format: 'png', cap: true, zip: true, stills: true, allMessages: false },
   };
 }
@@ -152,7 +152,7 @@ function aliasFor(w) {
   return name;
 }
 const ROLE = { // [weight setting or number, width setting]
-  head: ['dWeight', 'wideW'], heavy: ['hWeight', 'wideW'], cond: ['cWeight', 'condW'], condBold: [700, 'condW'], medium: [500, 'bodyW'], body: [400, 'bodyW'],
+  head: ['dWeight', 'wideW'], heavy: ['hWeight', 'wideW'], last: ['hWeight', 'lastW'], cond: ['cWeight', 'condW'], condBold: [700, 'condW'], medium: [500, 'bodyW'], body: [400, 'bodyW'],
 };
 function font(role, size) {
   const f = state.font, px = `${Math.max(1, size).toFixed(2)}px`, [wt, wd] = ROLE[role] || ROLE.body;
@@ -515,7 +515,7 @@ function lineupBlock(x, w, h, T, ink, P) {
     if (cols === 1 && w > 260) continue;
     const gx = w * (cols === 4 ? .03 : .07), cw = (w - gx * (cols - 1)) / cols, rows = Math.ceil(C.length / cols);
     // biggest last-name size that fits the column
-    const nMax = search(n => C.every(c => !wrap(MC, c.last, font('heavy', n), cw).over) ? n : null, 4, 260);
+    const nMax = search(n => C.every(c => !wrap(MC, c.last, font('last', n), cw).over) ? n : null, 4, 260);
     if (!nMax) continue;
     const anyPre = C.some(c => c.showPrefix && c.prefix.trim()), anyOff = C.some(c => c.showOffice);
     for (const photos of usePhotos() ? [true, false] : [false]) for (const pre of anyPre ? [true, false] : [false]) for (const off of anyOff ? [true, false] : [false]) {
@@ -572,7 +572,7 @@ function lineupBlock(x, w, h, T, ink, P) {
         // the last name lands: drops in big and settles (or glides / fades in)
         const pn = prog(t + .35, .4), ny = ty;
         enter(ctx, pn, mid, ny + F.n * .4, [F.cw * .4, 0], p => 1.5 - .5 * EASE.out(p), () => {
-          ctx.font = font('heavy', F.n); ctx.fillStyle = ink; ctx.textAlign = 'center';
+          ctx.font = font('last', F.n); ctx.fillStyle = ink; ctx.textAlign = 'center';
           ctx.fillText(C[i].last, mid, ny + F.n * ASC); ctx.textAlign = 'left';
         });
         ty += F.n * .98;
@@ -699,7 +699,7 @@ function fitNames(w, h, colors, P, align) {
   const items = (c, color, pre, off) => [
     // like the earlier campaign pieces: a big bold "Judge Christine" sitting tight on the last name
     pre && c.showPrefix && c.prefix.trim() && { text: c.prefix, role: 'condBold', r: .72, lh: 1, color, maxLines: 2, gap: 0 },
-    { text: c.last, role: 'heavy', r: 1, lh: 1, color, maxLines: 1, gap: .04 },
+    { text: c.last, role: 'last', r: 1, lh: 1, color, maxLines: 1, gap: .04 },
     off && c.showOffice && { text: c.office || c.short, role: 'cond', r: .46, lh: 1.05, color, maxLines: 2, gap: .2 },
   ].filter(Boolean);
   for (const [pre, off] of [[true, true], [true, false], [false, false]]) {
