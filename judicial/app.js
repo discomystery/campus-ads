@@ -39,7 +39,7 @@ const presetOf = key => {
 /* ---------- state ---------- */
 const DEFAULT_COLORS = { yellow: '#EFA531', blue: '#2F4A9B', white: '#FFFFFF', black: '#1A1A1A' };
 const THEMES = { classic: 'White + yellow', blue: 'Blue + yellow', yellow: 'Yellow + blue', white: 'White + blue' };
-const cand = (prefix, last, office, short) => ({ prefix, last, office, short, photo: null, zoom: 1, x: 0, y: 0 });
+const cand = (prefix, last, office, short) => ({ prefix, last, office, short, showPrefix: true, showOffice: true, photo: null, zoom: 1, x: 0, y: 0 });
 // Alternate messages. Each size uses one, so the set of ads doesn't all say the same thing.
 const msg = (kicker, headline, short, cta) => ({ kicker, headline, short, cta });
 const DEFAULT_MESSAGES = [
@@ -47,7 +47,7 @@ const DEFAULT_MESSAGES = [
   msg('Today is Election Day', 'Missed early voting? *It\'s not too late.*', '*It\'s not too late.*', 'Vote by 7:30\u00a0PM tonight'),
   msg('Election Day', 'Don\'t stop at the top. Vote *all the way down* the ballot.', 'Vote *all the way down* the ballot.', 'Polls open till 7:30\u00a0PM'),
   msg('Today is Election Day', '*Our courts* are on the ballot today.', '*Our courts* are on the ballot.', 'Polls close at 7:30\u00a0PM'),
-  msg('Every vote counts', 'Court races are won by *a few thousand votes*. Make one of them *yours*.', 'Make *your vote* count.', 'Vote by 7:30\u00a0PM tonight'),
+  msg('Every vote counts', '*Statewide* court races here have been decided by *just a few hundred votes*. Make one of them *yours*.', 'Make *your vote* count.', 'Vote by 7:30\u00a0PM tonight'),
 ];
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 function freshState() {
@@ -74,7 +74,8 @@ function freshState() {
     colors: { ...DEFAULT_COLORS },
     theme: 'classic', themeAuto: false,
     pattern: 'none', sticker: false, guides: true,
-    duration: 8, outro: 'hold',
+    duration: 8, outro: 'hold', motion: 'pop', pulse: true,
+    frame: 'circle', endFrame: 'circle',
     font: { kit: '', display: 'roc-grotesk-wide', dWeight: '500', hWeight: '800', cond: 'roc-grotesk-condensed', cWeight: '500', body: 'roc-grotesk' },
     exp: { kind: 'anim', format: 'png', cap: true, zip: true, stills: true, allMessages: false },
   };
@@ -102,6 +103,8 @@ try {
     // the single message from before alternate messages existed becomes message A
     if (!saved.messages && saved.text?.headline) saved.messages = [{ ...DEFAULT_MESSAGES[0], ...saved.text }, ...DEFAULT_MESSAGES.slice(1)];
     state = merge(freshState(), saved);
+    // the first draft of message E made a vaguer claim
+    state.messages.forEach(m => { if (m.headline.startsWith('Court races are won by *a few thousand votes*')) Object.assign(m, DEFAULT_MESSAGES[4]); });
   }
   else { // carry photos and settings over from the first version's saved data
     const old = JSON.parse(localStorage.getItem('judstudio.v1'));
@@ -189,13 +192,20 @@ const EASE = {
   back: x => { const c1 = 1.8, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); },
 };
 const prog = (t0, dur) => clamp((NOW - t0) / dur, 0, 1);
-// scale and fade whatever draw() paints, around a point
-function popAt(ctx, cx, cy, s, alpha, draw) {
-  if (s <= 0 || alpha <= 0) return;
-  ctx.save(); ctx.globalAlpha *= Math.min(1, alpha);
-  if (s !== 1) { ctx.translate(cx, cy); ctx.scale(s, s); ctx.translate(-cx, -cy); }
+/* How each element arrives depends on the chosen style:
+   pop = scales in with a bounce, slide = glides in, fade = fades up, none = no motion. */
+const MOTIONS = { pop: 'Pop (bouncy)', slide: 'Slide (smooth)', fade: 'Fade (calm)', none: 'None (still image)' };
+function enter(ctx, p, cx, cy, slide, popScale, draw) {
+  if (p <= 0) return;
+  if (p >= 1) { draw(); return; }
+  const m = state.motion;
+  ctx.save();
+  if (m === 'pop') { const s = popScale(p); ctx.globalAlpha *= Math.min(1, p * 2); ctx.translate(cx, cy); ctx.scale(s, s); ctx.translate(-cx, -cy); }
+  else if (m === 'slide') { const k = 1 - EASE.out(p); ctx.globalAlpha *= Math.min(1, p * 1.5); ctx.translate(-slide[0] * k, slide[1] * k); }
+  else ctx.globalAlpha *= EASE.out(p);
   draw(); ctx.restore();
 }
+const popBack = p => EASE.back(p);
 
 /* ---------- text: wrapping and fitting ---------- */
 // "for *justice*." -> words made of segments; starred segments get the heavy font and accent color
@@ -242,11 +252,11 @@ function drawLines(ctx, b, f, size, lh, x, y, w, align, color, hi, anim) {
       const p = anim ? prog(anim.t0 + n * WORD_STEP, .5) : 1, isHi = hi && word.segs.some(s => s.hi);
       n++;
       if (p > 0) {
-        ctx.save(); ctx.globalAlpha *= Math.min(1, p * 1.6);
-        if (p < 1) {
+        ctx.save(); ctx.globalAlpha *= state.motion === 'fade' ? EASE.out(p) : Math.min(1, p * 1.6);
+        if (p < 1 && state.motion === 'pop') {
           if (isHi) { const s = .3 + .7 * EASE.back(p), mx = cx + word.w / 2, my = base - size * .35; ctx.translate(mx, my); ctx.scale(s, s); ctx.translate(-mx, -my); }
           else ctx.translate(0, (1 - EASE.out(p)) * size * .6);
-        }
+        } else if (p < 1 && state.motion === 'slide') ctx.translate(-(1 - EASE.out(p)) * size * .45, 0);
         let sx = cx;
         word.segs.forEach(s => {
           const h = s.hi && hi;
@@ -307,7 +317,7 @@ function drawStack(ctx, res, x, y, align, t0) {
     if (it.pill) {
       const pw = o.b.maxW + o.pad * 2, px = align === 'center' ? x + (res.w - pw) / 2 : x, yy = y;
       const p = t0 == null ? 1 : prog(t, .45);
-      popAt(ctx, px + pw / 2, yy + o.h / 2, EASE.back(p), p * 2, () => {
+      enter(ctx, p, px + pw / 2, yy + o.h / 2, [o.h * 2, 0], popBack, () => {
         ctx.fillStyle = it.pill; ctx.beginPath(); ctx.roundRect(px, yy, pw, o.h, o.h / 2); ctx.fill();
         drawLines(ctx, o.b, o.f, o.size, it.lh || 1.15, px + o.pad, yy + o.size * .35, pw - o.pad * 2, 'center', it.color, hi);
       });
@@ -340,11 +350,17 @@ function loadPhoto() {
   img.src = state.endorser.photo;
 }
 // endorser: a regular photo cropped to a circle with a ring
+// frame shapes: 'circle', 'square' (rounded) or 'none'
+function framePath(ctx, frame, cx, cy, d) {
+  ctx.beginPath();
+  if (frame === 'circle') ctx.arc(cx, cy, d / 2, 0, Math.PI * 2);
+  else ctx.roundRect(cx - d / 2, cy - d / 2, d, d, frame === 'square' ? d * .16 : 0);
+}
 function drawPhoto(ctx, cx, cy, d, ring, ink) {
-  ctx.fillStyle = ring; ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.fill();
-  const i = d * .9;
+  const frame = state.endFrame, i = frame === 'none' ? d : d * .9;
+  if (frame !== 'none') { ctx.fillStyle = ring; framePath(ctx, frame, cx, cy, d); ctx.fill(); }
   ctx.save();
-  ctx.beginPath(); ctx.arc(cx, cy, i / 2, 0, Math.PI * 2); ctx.clip();
+  framePath(ctx, frame === 'none' ? 'square' : frame, cx, cy, i); ctx.clip();
   if (photoImg) {
     const E = state.endorser, s = Math.max(i / photoImg.width, i / photoImg.height) * E.zoom;
     const iw = photoImg.width * s, ih = photoImg.height * s;
@@ -374,11 +390,14 @@ function loadCandPhotos() {
 const POP = 1.12; // cutout box height as a multiple of the disc diameter
 function drawCutout(ctx, i, x, y, d, disc, ink, rise = 1) {
   const c = state.candidates[i], img = candImgs[i]?.complete ? candImgs[i] : null;
-  const h = d * POP, R = d / 2, cx = x + R, cy = y + h - R, dy = (1 - EASE.out(rise)) * h * .95;
-  ctx.fillStyle = disc; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  const h = d * POP, R = d / 2, cx = x + R, cy = y + h - R, dy = (1 - EASE.out(rise)) * h * .95, frame = state.frame;
+  if (frame !== 'none') { ctx.fillStyle = disc; framePath(ctx, frame, cx, cy, d); ctx.fill(); }
   if (rise <= 0) return;
   ctx.save();
-  ctx.beginPath(); ctx.rect(x - R * .15, y, d + R * .3, cy - y); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+  // the head pops out over the top of the frame; with no frame the photo just stands on its own
+  ctx.beginPath(); ctx.rect(x - R * .15, y, d + R * .3, cy - y);
+  if (frame === 'circle') ctx.arc(cx, cy, R, 0, Math.PI * 2); else ctx.roundRect(x, cy - R, d, d, frame === 'square' ? d * .16 : 0);
+  ctx.clip();
   ctx.translate(0, dy);
   if (img) {
     // fit by height so the top of the head touches the top of the box at zoom 1
@@ -431,27 +450,29 @@ function lineupBlock(x, w, h, T, ink, P) {
     // biggest last-name size that fits the column
     const nMax = search(n => C.every(c => !wrap(MC, c.last, font('heavy', n), cw).over) ? n : null, 4, 260);
     if (!nMax) continue;
-    for (const photos of usePhotos() ? [true, false] : [false]) for (const pre of [true, false]) for (const off of [true, false]) {
+    const anyPre = C.some(c => c.showPrefix && c.prefix.trim()), anyOff = C.some(c => c.showOffice);
+    for (const photos of usePhotos() ? [true, false] : [false]) for (const pre of anyPre ? [true, false] : [false]) for (const off of anyOff ? [true, false] : [false]) {
       const build = (d, n) => {
         const p = n * .56;
         if (n > nMax + .01 || ((pre || off) && p < minP)) return null;
         if (photos && (d > cw * .96 || n < 11)) return null;
-        const pb = pre ? C.map(c => wrap(MC, c.prefix, font('cond', p), cw)) : null;
+        // each judge can hide either small line; hidden ones still keep their slot so last names line up
+        const empty = { lines: [], over: false };
+        const pb = pre ? C.map(c => c.showPrefix && c.prefix.trim() ? wrap(MC, c.prefix, font('cond', p), cw) : empty) : null;
         if (pb && pb.some(b => b.over || b.lines.length > 2)) return null;
         let ob = null;
         if (off) {
-          const mode = (k, ml) => { const o = C.map(c => wrap(MC, (c[k] || c.office || c.short || '').trim(), font('cond', p), cw)); return o.every(b => !b.over && b.lines.length <= ml) ? o : null; };
+          const mode = (k, ml) => { const o = C.map(c => c.showOffice ? wrap(MC, (c[k] || c.office || c.short || '').trim(), font('cond', p), cw) : empty); return o.every(b => !b.over && b.lines.length <= ml) ? o : null; };
           ob = mode('office', 1) || mode('short', 1) || mode('office', 2) || mode('short', 2);
           if (!ob) return null;
         }
         const ph = photos ? d * POP : 0;
-        const cells = C.map((c, i) => {
-          const pl = pb ? pb[i].lines.length : 0, ol = ob ? ob[i].lines.length : 0;
-          return { h: ph + (photos ? n * .28 : 0) + (pl ? blockH(pl, p, 1.05) + p * .2 : 0) + n * .98 + (ol ? p * .25 + blockH(ol, p, 1.05) : 0) };
-        });
+        const preL = pb ? Math.max(...pb.map(b => b.lines.length)) : 0, offL = ob ? Math.max(...ob.map(b => b.lines.length)) : 0;
+        const preH = preL ? blockH(preL, p, 1.05) + p * .2 : 0;
+        const cells = C.map(() => ({ h: ph + (photos ? n * .28 : 0) + preH + n * .98 + (offL ? p * .25 + blockH(offL, p, 1.05) : 0) }));
         const rowH = []; for (let r = 0; r < rows; r++) rowH.push(Math.max(...cells.slice(r * cols, r * cols + cols).map(c => c.h)));
         const gy = n * (photos ? .9 : .7), total = rowH.reduce((a, b) => a + b, 0) + gy * (rows - 1);
-        return total <= h ? { cols, gx, cw, rows, rowH, gy, total, d: photos ? d : 0, ph, n, p, pb, ob, photos, pre, off } : null;
+        return total <= h ? { cols, gx, cw, rows, rowH, gy, total, d: photos ? d : 0, ph, n, p, pb, ob, preH, photos, pre, off } : null;
       };
       // search() needs its low end to fit, so start where the smallest allowed text is
       const nLo = Math.max(pre || off ? minP / .56 : 6, photos ? 11 : 0);
@@ -474,16 +495,16 @@ function lineupBlock(x, w, h, T, ink, P) {
         const cx = x + (w - width) / 2 + col * (F.cw + F.gx), mid = cx + F.cw / 2, t = t0 + i * JUDGE_STEP;
         let ty = cy;
         if (F.photos) {
-          // the disc pops, then the judge rises up out of it
-          const dx = cx + (F.cw - F.d) / 2, s = EASE.back(prog(t, .45));
-          popAt(ctx, dx + F.d / 2, cy + F.ph - F.d / 2, s, 1, () => drawCutout(ctx, i, dx, cy, F.d, T.disc, ink, prog(t + .15, .6)));
+          // the frame arrives, then the judge rises up out of it (a calm fade skips the rise)
+          const dx = cx + (F.cw - F.d) / 2, rise = state.motion === 'fade' ? 1 : prog(t + .15, .6);
+          enter(ctx, prog(t, .45), dx + F.d / 2, cy + F.ph - F.d / 2, [0, F.d * .5], popBack, () => drawCutout(ctx, i, dx, cy, F.d, T.disc, ink, rise));
           ty += F.ph + F.n * .28;
         }
         const fade = (t1, dy, draw) => { const p = prog(t1, .35); if (p > 0) { ctx.save(); ctx.globalAlpha *= p; ctx.translate(0, (1 - EASE.out(p)) * dy); draw(); ctx.restore(); } };
-        if (F.pb) { const yy = ty; fade(t + .5, F.p, () => drawLines(ctx, F.pb[i], font('cond', F.p), F.p, 1.05, cx, yy, F.cw, 'center', ink)); ty += blockH(F.pb[i].lines.length, F.p, 1.05) + F.p * .2; }
-        // the last name lands: drops in big and settles
+        if (F.pb) { const yy = ty + (F.preH - (F.pb[i].lines.length ? blockH(F.pb[i].lines.length, F.p, 1.05) + F.p * .2 : 0)); fade(t + .5, F.p, () => drawLines(ctx, F.pb[i], font('cond', F.p), F.p, 1.05, cx, yy, F.cw, 'center', ink)); ty += F.preH; }
+        // the last name lands: drops in big and settles (or glides / fades in)
         const pn = prog(t + .35, .4), ny = ty;
-        popAt(ctx, mid, ny + F.n * .4, 1.5 - .5 * EASE.out(pn), pn * 2, () => {
+        enter(ctx, pn, mid, ny + F.n * .4, [F.cw * .4, 0], p => 1.5 - .5 * EASE.out(p), () => {
           ctx.font = font('heavy', F.n); ctx.fillStyle = ink; ctx.textAlign = 'center';
           ctx.fillText(C[i].last, mid, ny + F.n * ASC); ctx.textAlign = 'left';
         });
@@ -505,7 +526,7 @@ function endBlock(x, w, h, T, ink, style, P) {
     const textOk = res && res.s >= minText(P);
     return { h: d + (textOk ? gap + res.total : 0), w, dur: 1, draw: (y, t0 = -1e9) => {
       const ctx = DC, p = prog(t0, .5);
-      popAt(ctx, x + w / 2, y + d / 2, EASE.back(p), p * 2, () => drawPhoto(ctx, x + w / 2, y + d / 2, d, ring, ink));
+      enter(ctx, p, x + w / 2, y + d / 2, [0, d * .4], popBack, () => drawPhoto(ctx, x + w / 2, y + d / 2, d, ring, ink));
       if (textOk) drawStack(ctx, res, x, y + d + gap, 'center', t0 + .3);
     } };
   }
@@ -513,7 +534,7 @@ function endBlock(x, w, h, T, ink, style, P) {
   const textOk = res && res.s >= minText(P), gw = d + (textOk ? gap + res.maxW : 0);
   return { h: d, w: gw, dur: 1, draw: (y, t0 = -1e9) => {
     const ctx = DC, x0 = x + (w - gw) / 2, p = prog(t0, .5);
-    popAt(ctx, x0 + d / 2, y + d / 2, EASE.back(p), p * 2, () => drawPhoto(ctx, x0 + d / 2, y + d / 2, d, ring, ink));
+    enter(ctx, p, x0 + d / 2, y + d / 2, [d * .6, 0], popBack, () => drawPhoto(ctx, x0 + d / 2, y + d / 2, d, ring, ink));
     if (textOk) drawStack(ctx, { ...res, w: res.maxW }, x0 + d + gap, y + (d - res.total) / 2, 'left', t0 + .3);
   } };
 }
@@ -541,14 +562,16 @@ function ctaFit(text, x, w, h, fill, fillInk, align, P, maxLines) {
   if (!F || F.s < minText(P) * .9) return null;
   return { h: F.ph, w: F.pw, dur: .9, draw: (y, t0 = -1e9) => {
     const ctx = DC, px = align === 'center' ? x + (w - F.pw) / 2 : x, cx = px + F.pw / 2, cy = y + F.ph / 2;
-    const p = prog(t0, .55), since = NOW - t0 - 1.4;
-    const pulse = Number.isFinite(since) && since > 0 ? 1 + .045 * Math.pow(Math.max(0, Math.sin(since * Math.PI / 1.1)), 6) : 1;
+    const p = prog(t0, .55), since = NOW - t0 - 1.4, m = state.motion;
+    const pulse = state.pulse && Number.isFinite(since) && since > 0 ? 1 + .045 * Math.pow(Math.max(0, Math.sin(since * Math.PI / 1.1)), 6) : 1;
     if (p <= 0) return;
     ctx.save(); ctx.translate(cx, cy); ctx.scale(pulse, pulse); ctx.translate(-cx, -cy);
-    const pw = Math.max(F.ph, F.pw * EASE.back(p)), sx = align === 'center' ? cx - pw / 2 : px;
-    ctx.globalAlpha *= Math.min(1, p * 3);
+    // pop stretches the button open; slide brings it up; fade fades it in
+    const pw = m === 'pop' ? Math.max(F.ph, F.pw * EASE.back(p)) : F.pw, sx = align === 'center' ? cx - pw / 2 : px;
+    if (m === 'slide') ctx.translate(0, (1 - EASE.out(p)) * F.ph * 1.2);
+    ctx.globalAlpha *= m === 'pop' ? Math.min(1, p * 3) : EASE.out(p);
     ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(sx, y, pw, F.ph, F.ph / 2); ctx.fill();
-    const tp = prog(t0 + .3, .3);
+    const tp = m === 'pop' ? prog(t0 + .3, .3) : 1;
     if (tp > 0) { ctx.globalAlpha *= tp; drawLines(ctx, F.b, font('heavy', F.s), F.s, 1.08, px + F.s * .9, y + F.s * .55, F.pw - F.s * 1.8, 'center', fillInk); }
     ctx.restore();
   } };
@@ -710,14 +733,15 @@ function render(ctx, P, k, editor, t = Infinity) {
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
   const T = themeFor(P), L = plan(P, T);
   const speed = Math.max(1, L.end / Math.max(1, state.duration - 1.5));
-  NOW = t * speed; DC = ctx;
+  NOW = state.motion === 'none' ? Infinity : t * speed; DC = ctx;
   try {
     ctx.fillStyle = T.top; ctx.fillRect(0, 0, P.w, P.h);
     drawPattern(ctx, P, T, L);
     if (L.band) {
       const p = EASE.out(prog(0, .7)), b = L.band;
       ctx.fillStyle = T.band;
-      if (b.from === 'right') ctx.fillRect(P.w - (P.w - b.x) * p, b.y, b.w, b.h);
+      if (state.motion === 'fade') { ctx.globalAlpha = p; ctx.fillRect(b.x, b.y, b.w, b.h); ctx.globalAlpha = 1; }
+      else if (b.from === 'right') ctx.fillRect(P.w - (P.w - b.x) * p, b.y, b.w, b.h);
       else ctx.fillRect(b.x, P.h - (P.h - b.y) * p, b.w, b.h);
     }
     L.items.forEach(it => it.b.draw(it.y, it.t0));
@@ -853,6 +877,8 @@ function renderCandFields() {
     <label>Last name<input type="text" data-bind="candidates.${i}.last"></label></div>
     <div class="row2"><label>Office line<input type="text" data-bind="candidates.${i}.office"></label>
     <label>Short office <span class="hint">(small sizes)</span><input type="text" data-bind="candidates.${i}.short"></label></div>
+    <div class="row2 checks"><label class="check"><input type="checkbox" data-bind="candidates.${i}.showPrefix"> Show title + first name</label>
+    <label class="check"><input type="checkbox" data-bind="candidates.${i}.showOffice"> Show office</label></div>
     <div class="cand-photo"><canvas width="120" height="140" data-thumb="${i}"></canvas>
       <div><div class="btn-row"><label class="ghost file-btn sm">${c.photo ? 'Replace photo' : 'Upload photo'}<input type="file" accept="image/*" data-photo="${i}" hidden></label>
         ${c.photo ? `<button class="ghost sm" data-clear="${i}">Remove</button>` : ''}</div>
@@ -881,12 +907,14 @@ function readCutout(file, done) {
     const d = ctx.getImageData(0, 0, c.width, c.height).data;
     let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
     for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 16) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-    let out = c;
+    let out = c, clear = false;
+    for (let i = 3; i < d.length; i += 16) if (d[i] < 250) { clear = true; break; }
     if (x1 >= 0 && (x0 > 0 || y0 > 0 || x1 < c.width - 1 || y1 < c.height - 1)) {
       out = document.createElement('canvas'); out.width = x1 - x0 + 1; out.height = y1 - y0 + 1;
       out.getContext('2d').drawImage(c, -x0, -y0);
     }
-    URL.revokeObjectURL(url); done(out.toDataURL('image/png'));
+    // a regular photo (no transparency) is stored as JPEG to save browser storage
+    URL.revokeObjectURL(url); done(clear ? out.toDataURL('image/png') : out.toDataURL('image/jpeg', .9));
   };
   img.onerror = () => alert('That file could not be opened as an image.');
   img.src = url;
@@ -942,6 +970,11 @@ function renderSizeToggles() {
   const n = PRESETS.filter(p => state.sizes[p.key].batch).length;
   $('#bxCount').textContent = `${n} checked`;
 }
+$$('[data-lines]').forEach(b => b.onclick = () => {
+  const [field, v] = b.dataset.lines.split(':');
+  state.candidates.forEach(c => { c[field] = v === '1'; });
+  save(); bindAll(); redraw();
+});
 $$('[data-all]').forEach(b => b.onclick = () => {
   const [field, v] = b.dataset.all.split(':');
   PRESETS.forEach(p => {
@@ -972,16 +1005,8 @@ for (const [id, k] of [['#customW', 'w'], ['#customH', 'h']]) {
 /* endorser photo: downscale on upload so it fits in browser storage */
 $('#photoFile').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
-  const img = new Image(), url = URL.createObjectURL(f);
-  img.onload = () => {
-    const s = Math.min(1, 1100 / Math.max(img.width, img.height)), c = document.createElement('canvas');
-    c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    Object.assign(state.endorser, { photo: c.toDataURL('image/jpeg', .9), zoom: 1, x: 0, y: 0 });
-    URL.revokeObjectURL(url); save(); bindAll(); loadPhoto();
-  };
-  img.onerror = () => alert('That file could not be opened as an image.');
-  img.src = url; e.target.value = '';
+  readCutout(f, url => { Object.assign(state.endorser, { photo: url, zoom: 1, x: 0, y: 0 }); save(); bindAll(); loadPhoto(); });
+  e.target.value = '';
 };
 $('#photoClear').onclick = () => { state.endorser.photo = null; save(); loadPhoto(); };
 function drawThumb() {
@@ -1244,6 +1269,7 @@ $('#loadSettings').onchange = async e => {
 $('#resetAll').onclick = () => { if (confirm('Reset all text, candidates, photo, colors and size settings?')) { state = freshState(); save(); initUI(); } };
 
 /* ---------- boot ---------- */
+$('#motionPick').innerHTML = Object.entries(MOTIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
 function initUI() {
   renderCandFields(); renderMessages(); bindAll(); renderSizeList(); renderSizeToggles(); renderThemes();
   $('#customW').value = state.custom.w; $('#customH').value = state.custom.h;

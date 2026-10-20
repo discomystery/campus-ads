@@ -68,6 +68,10 @@
     <div class="tab-body" data-body="cands">
       <p class="hint">Each judge prints as three lines, like the literature: "Justice Anita" / <b>EARLS</b> / "for Supreme Court". Small sizes switch to the short office, then drop lines; the tiniest banners show last names only.</p>
       <label class="check"><input type="checkbox" data-bind="candPhotos"> Show candidate photos</label>
+      <label>Photo frame
+        <select data-bind="frame"><option value="circle">Circle (heads pop out the top)</option><option value="square">Rounded square (heads pop out the top)</option><option value="none">No frame (cutouts stand on the band)</option></select>
+      </label>
+      <div class="bx-head"><b>Name lines</b><span class="bx-links"><button data-lines="showPrefix:1">All titles on</button><button data-lines="showPrefix:0">Off</button><button data-lines="showOffice:1">All offices on</button><button data-lines="showOffice:0">Off</button></span></div>
       <p class="hint">Shoulders-up PNGs with transparent backgrounds work best: each head pops out over a colored circle. Photos are left off sizes too small to show them.</p>
       <div id="candFields"></div>
     </div>
@@ -101,6 +105,9 @@
       <div class="prop"><span>Zoom</span><input type="range" min="1" max="3" step="0.01" data-bind="endorser.zoom"><output data-out="endorser.zoom"></output></div>
       <div class="prop"><span>Left / right</span><input type="range" min="-1" max="1" step="0.01" data-bind="endorser.x"><output data-out="endorser.x"></output></div>
       <div class="prop"><span>Up / down</span><input type="range" min="-1" max="1" step="0.01" data-bind="endorser.y"><output data-out="endorser.y"></output></div>
+      <label>Photo frame
+        <select data-bind="endFrame"><option value="circle">Circle</option><option value="square">Rounded square</option><option value="none">No frame</option></select>
+      </label>
       <label>Endorser name <span class="hint">(shown beside or under the photo when there's room)</span>
         <input type="text" data-bind="endorser.name">
       </label>
@@ -110,6 +117,10 @@
 
     <div class="tab-body" data-body="style" hidden>
       <h3>Motion</h3>
+      <div class="row2">
+        <label>Animation style<select data-bind="motion" id="motionPick"></select></label>
+        <label class="check pulse"><input type="checkbox" data-bind="pulse"> Button pulses</label>
+      </div>
       <div class="row2">
         <label>Length (seconds)<input type="number" min="5" max="15" step="0.5" data-bind="duration"></label>
         <label>Ending<select data-bind="outro"><option value="hold">Hold the finished ad</option><option value="fade">Fade out (loops cleanly)</option></select></label>
