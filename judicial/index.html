@@ -46,7 +46,7 @@
       <input id="scrub" type="range" min="0" max="1000" value="0">
       <span id="timeRead" class="mono">0.0s</span>
     </div>
-    <div class="size-info" id="sizeInfo"></div>
+    <div class="size-info"><span id="sizeInfo"></span> · <label class="inline">Message <select id="msgPick"></select></label></div>
     <div class="warn" id="warnings"></div>
   </section>
 
@@ -73,18 +73,12 @@
     </div>
 
     <div class="tab-body" data-body="message" hidden>
-      <label>Kicker <span class="hint">(small tag above the headline)</span>
-        <input type="text" data-bind="text.kicker">
-      </label>
-      <label>Headline <span class="hint">(wrap words in *stars* to make them bold and blue)</span>
-        <textarea rows="3" data-bind="text.headline"></textarea>
-      </label>
-      <label>Short headline <span class="hint">(used on sizes too small for the full one)</span>
-        <input type="text" data-bind="text.short">
-      </label>
-      <label>Call to action button
-        <input type="text" data-bind="text.cta">
-      </label>
+      <p class="hint">Write a few different messages; each size uses one, so the ads don't all say the same thing. Wrap words in *stars* to make them bold and blue. The short headline is used where the full one wouldn't be readable.</p>
+      <div id="msgFields"></div>
+      <button id="addMsg" class="ghost">+ Add a message</button>
+      <div class="bx-head"><b>Which message each size uses</b><span class="bx-links"><button id="msgSpread">Spread them out</button><button id="msgAllA">All use A</button></span></div>
+      <div id="msgSizes" class="msg-sizes"></div>
+      <h3>Every size</h3>
       <label>Sticker <span class="hint">(starburst on tall feed sizes, if turned on in Style)</span>
         <input type="text" data-bind="text.sticker">
       </label>
@@ -179,6 +173,7 @@
         </label>
       </div>
       <label class="check"><input type="checkbox" data-bind="exp.stills"> With animations, add a still backup for each Google size</label>
+      <label class="check"><input type="checkbox" data-bind="exp.allMessages"> Every message for every checked size (for A/B testing)</label>
       <label class="check"><input type="checkbox" data-bind="exp.cap"> Keep Google sizes under 150 KB (switches to JPG if needed)</label>
       <label class="check"><input type="checkbox" data-bind="exp.zip"> Bundle into one .zip</label>
       <button id="exportBatch" class="primary">Export checked sizes</button>

@@ -40,16 +40,24 @@ const presetOf = key => {
 const DEFAULT_COLORS = { yellow: '#EFA531', blue: '#2F4A9B', white: '#FFFFFF', black: '#1A1A1A' };
 const THEMES = { classic: 'White + yellow', blue: 'Blue + yellow', yellow: 'Yellow + blue', white: 'White + blue' };
 const cand = (prefix, last, office, short) => ({ prefix, last, office, short, photo: null, zoom: 1, x: 0, y: 0 });
+// Alternate messages. Each size uses one, so the set of ads doesn't all say the same thing.
+const msg = (kicker, headline, short, cta) => ({ kicker, headline, short, cta });
+const DEFAULT_MESSAGES = [
+  msg('Today is Election Day', 'Your rights are on the ballot, and *you* could cast the *deciding vote* for *justice*.', 'Cast the *deciding vote* for *justice*.', 'Polls open till 7:30\u00a0PM'),
+  msg('Today is Election Day', 'Missed early voting? *It\'s not too late.*', '*It\'s not too late.*', 'Vote by 7:30\u00a0PM tonight'),
+  msg('Election Day', 'Don\'t stop at the top. Vote *all the way down* the ballot.', 'Vote *all the way down* the ballot.', 'Polls open till 7:30\u00a0PM'),
+  msg('Today is Election Day', '*Our courts* are on the ballot today.', '*Our courts* are on the ballot.', 'Polls close at 7:30\u00a0PM'),
+  msg('Every vote counts', 'Court races are won by *a few thousand votes*. Make one of them *yours*.', 'Make *your vote* count.', 'Vote by 7:30\u00a0PM tonight'),
+];
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 function freshState() {
   const sizes = {};
-  PRESETS.forEach(p => { sizes[p.key] = { endorser: !!p.big, disclaimer: true, batch: p.key !== 'custom' }; });
+  // spread the messages across the sizes so neighbors differ
+  PRESETS.forEach((p, i) => { sizes[p.key] = { endorser: !!p.big, disclaimer: true, batch: p.key !== 'custom', message: i % DEFAULT_MESSAGES.length }; });
   return {
     size: 'meta45', view: 'single', tab: 'cands',
+    messages: DEFAULT_MESSAGES.map(m => ({ ...m })),
     text: {
-      kicker: 'Today is Election Day',
-      headline: 'Your rights are on the ballot, and *you* could cast the *deciding vote* for *justice*.',
-      short: 'Cast the *deciding vote* for *justice*.',
-      cta: 'Polls open till 7:30 PM',
       sticker: 'It\'s not too late!',
       disclaimer: 'Paid for by [Committee Name]',
     },
@@ -68,7 +76,7 @@ function freshState() {
     pattern: 'none', sticker: false, guides: true,
     duration: 8, outro: 'hold',
     font: { kit: '', display: 'roc-grotesk-wide', dWeight: '500', hWeight: '800', cond: 'roc-grotesk-condensed', cWeight: '500', body: 'roc-grotesk' },
-    exp: { kind: 'anim', format: 'png', cap: true, zip: true, stills: true },
+    exp: { kind: 'anim', format: 'png', cap: true, zip: true, stills: true, allMessages: false },
   };
 }
 function merge(base, saved) {
@@ -77,7 +85,12 @@ function merge(base, saved) {
     if (!(k in saved)) continue;
     const b = base[k], s = saved[k];
     if (b && typeof b === 'object' && !Array.isArray(b)) base[k] = merge(b, s);
-    else if (Array.isArray(b)) { if (Array.isArray(s)) base[k] = b.map((x, i) => s[i] ? merge(x, s[i]) : x); }
+    else if (Array.isArray(b)) {
+      if (!Array.isArray(s)) continue;
+      // fixed lists (candidates) keep their length; messages can grow and shrink
+      base[k] = k === 'messages' ? s.filter(Boolean).map(x => merge({ ...b[0] }, x)) : b.map((x, i) => s[i] ? merge(x, s[i]) : x);
+      if (!base[k].length) base[k] = b;
+    }
     else if (b === null || typeof b === typeof s) base[k] = s;
   }
   return base;
@@ -85,7 +98,11 @@ function merge(base, saved) {
 let state = freshState();
 try {
   const saved = JSON.parse(localStorage.getItem(STORE_KEY));
-  if (saved) state = merge(freshState(), saved);
+  if (saved) {
+    // the single message from before alternate messages existed becomes message A
+    if (!saved.messages && saved.text?.headline) saved.messages = [{ ...DEFAULT_MESSAGES[0], ...saved.text }, ...DEFAULT_MESSAGES.slice(1)];
+    state = merge(freshState(), saved);
+  }
   else { // carry photos and settings over from the first version's saved data
     const old = JSON.parse(localStorage.getItem('judstudio.v1'));
     if (old) {
@@ -375,6 +392,11 @@ function drawCutout(ctx, i, x, y, d, disc, ink, rise = 1) {
   ctx.restore();
 }
 
+/* ---------- messages ---------- */
+// which message a size uses; an export can force one with P.message
+const msgIndex = P => clamp(P.message ?? state.sizes[P.key]?.message ?? 0, 0, state.messages.length - 1);
+const msgOf = P => state.messages[msgIndex(P)];
+
 /* ---------- blocks ---------- */
 // Every block is measured once (with MC, a scratch context) and reports its
 // natural height, width and how long it takes to animate in. draw(y, t0)
@@ -385,7 +407,7 @@ const usePhotos = () => state.candPhotos;
 const minText = P => Math.max(10.5, Math.min(P.w, P.h) * .018); // nothing smaller than this gets drawn
 
 function headerBlock(x, w, h, T, align, P, small) {
-  const t = state.text, m = Math.min(P.w, P.h);
+  const t = msgOf(P), m = Math.min(P.w, P.h);
   const make = head => fitStack(MC, [
     !small && { text: t.kicker.toUpperCase(), role: 'condBold', r: .5, cap: w * .045 + 8, min: minText(P), pill: T.kick, color: T.kickInk, maxLines: 1, lh: 1, gap: 0, optional: true },
     { text: head, role: 'head', hiRole: 'heavy', r: 1, lh: 1.04, color: T.ink, hi: T.hi, gap: .42 },
@@ -497,12 +519,21 @@ function endBlock(x, w, h, T, ink, style, P) {
 }
 
 // the button: stretches open, then gives a gentle pulse every couple of seconds
-function ctaBlock(x, w, h, fill, fillInk, align, P) {
-  const text = state.text.cta.trim();
+function ctaBlock(x, w, h, fill, fillInk, align, P, maxLines = 2) {
+  let text = msgOf(P).cta.trim();
   if (!text) return null;
+  // too long for a tiny banner: drop trailing words ("Vote by 7:30 PM tonight" -> "Vote by 7:30 PM")
+  for (;;) {
+    const res = ctaFit(text, x, w, h, fill, fillInk, align, P, maxLines);
+    const shorter = text.replace(/\s+\S+$/, '');
+    if (res || shorter === text || !/\s/.test(shorter)) return res;
+    text = shorter;
+  }
+}
+function ctaFit(text, x, w, h, fill, fillInk, align, P, maxLines) {
   const build = s => {
     const b = wrap(MC, text, font('heavy', s), w - s * 1.8);
-    if (b.over || b.lines.length > 2) return null;
+    if (b.over || b.lines.length > maxLines) return null;
     const ph = blockH(b.lines.length, s, 1.08) + s * 1.1, pw = b.maxW + s * 1.8;
     return ph <= h && pw <= w ? { s, b, ph, pw } : null;
   };
@@ -557,7 +588,7 @@ function spread(rows, y0, h, gap) {
 const planCache = new Map();
 let planVersion = 0;
 function plan(P, T) {
-  const key = `${P.key}|${P.w}x${P.h}|${T.name}|${planVersion}`;
+  const key = `${P.key}|${P.w}x${P.h}|${T.name}|${msgIndex(P)}|${planVersion}`;
   if (planCache.has(key)) return planCache.get(key);
   if (planCache.size > 60) planCache.clear();
   const L = makePlan(P, T);
@@ -607,16 +638,16 @@ function makePlan(P, T) {
     // side by side: headline (and button) on the left, judges in the band on the right
     const gap = Math.round(fam === 'strip' ? Math.max(5, r.h * .16) : m * .07);
     const leftW = r.w * (fam === 'strip' ? .3 : endOn ? .33 : .38);
-    const ctaCol = fam === 'strip' && r.w >= 560 && state.text.cta.trim() ? r.w * .2 : 0;
+    const ctaCol = fam === 'strip' && r.w >= 560 && msgOf(P).cta.trim() ? r.w * .2 : 0;
     const endW = fam === 'cols' && endOn ? r.w * .15 : 0;
     const discH = discOn ? clamp(H * (fam === 'strip' ? .15 : .06), 7, 16) : 0;
     const lh = r.h - (discH ? discH + gap * .3 : 0);
     let hdr = null, cta = null;
-    if (fam === 'strip' && lh < 46) cta = ctaBlock(r.x, leftW, lh, T.ctaTop, T.ctaTopInk, 'left', P);
+    if (fam === 'strip' && lh < 46) cta = ctaBlock(r.x, leftW, lh, T.ctaTop, T.ctaTopInk, 'left', P, 3);
     else {
       const ctaH = ctaCol ? 0 : lh * (fam === 'strip' ? .36 : .28);
       hdr = headerBlock(r.x, leftW, lh - ctaH - (ctaH ? gap * .4 : 0), T, 'left', P, fam === 'strip');
-      if (!hdr && !ctaCol) cta = ctaBlock(r.x, leftW, lh, T.ctaTop, T.ctaTopInk, 'left', P); // no room for a readable headline: the button says it
+      if (!hdr && !ctaCol) cta = ctaBlock(r.x, leftW, lh, T.ctaTop, T.ctaTopInk, 'left', P, 3); // no room for a readable headline: the button says it
       else if (ctaH) cta = ctaBlock(r.x, leftW, ctaH, T.ctaTop, T.ctaTopInk, 'left', P);
     }
     const left = [hdr, cta].filter(Boolean), ys = spread(left, r.y, lh, gap * .4);
@@ -735,7 +766,7 @@ function drawSingle(full) {
   const warn = [];
   if (state.sizes[P.key]?.endorser && !state.endorser.photo) warn.push('No endorser photo yet: add one on the Endorser tab.');
   if (usePhotos() && state.candidates.some(c => !c.photo)) warn.push('Some candidates have no photo yet.');
-  if (/\[/.test(JSON.stringify(state.text))) warn.push('Placeholder text is still in the ad.');
+  if (/\[/.test(JSON.stringify([state.text, msgOf(P)]))) warn.push('Placeholder text is still in the ad.');
   if (!state.sizes[P.key]?.disclaimer || !state.text.disclaimer.trim()) warn.push('No disclaimer on this size.');
   $('#warnings').textContent = warn.join(' ');
 }
@@ -762,7 +793,7 @@ function drawGrid() {
   if (grid.children.length !== PRESETS.length) {
     grid.innerHTML = PRESETS.map(p => `<button class="ad-card" data-key="${p.key}"><canvas></canvas><div><b>${esc(p.name)}</b> <span></span></div></button>`).join('');
     $$('.ad-card', grid).forEach(b => {
-      b.onclick = () => { state.size = b.dataset.key; playT = 0; setView('single'); renderSizeList(); save(); };
+      b.onclick = () => { state.size = b.dataset.key; playT = 0; setView('single'); renderSizeList(); renderMessages(); bindAll(); save(); };
       b.onmouseenter = () => playCard(b);
     });
   }
@@ -774,7 +805,7 @@ function drawCard(card, t) {
   if (c.width !== Math.round(P.w * k * dpr)) { c.width = Math.round(P.w * k * dpr); c.height = Math.round(P.h * k * dpr); }
   c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
   render(c.getContext('2d'), P, k * dpr, false, t);
-  $('span', card).textContent = `${P.w}×${P.h}`;
+  $('span', card).textContent = `${P.w}×${P.h} · message ${LETTERS[msgIndex(P)]}`;
   card.classList.toggle('active', P.key === state.size);
 }
 function playCard(card) {
@@ -810,6 +841,7 @@ function bindAll() {
       if (p.startsWith('colors.') || p === 'theme') renderThemes();
       if (p.startsWith('endorser.')) drawThumb();
       if (p.startsWith('candidates.')) drawCandThumbs();
+      if (p.startsWith('messages.')) refreshMsgLabels();
       save(); redraw();
     };
   });
@@ -859,6 +891,34 @@ function readCutout(file, done) {
   img.onerror = () => alert('That file could not be opened as an image.');
   img.src = url;
 }
+function refreshMsgLabels() {
+  $$('#msgSizes select, #msgPick').forEach(sel => [...sel.options].forEach(o => { o.textContent = `${LETTERS[+o.value]}: ${excerpt(state.messages[+o.value])}`; }));
+}
+const excerpt = m => (m.short || m.headline).replace(/\*/g, '').slice(0, 34);
+function renderMessages() {
+  const n = state.messages.length;
+  $('#msgFields').innerHTML = state.messages.map((m, i) => `<div class="msg"><div class="msg-head"><b>Message ${LETTERS[i]}</b>${n > 1 ? `<button data-del="${i}">Remove</button>` : ''}</div>
+    <label>Tag above the headline<input type="text" data-bind="messages.${i}.kicker"></label>
+    <label>Headline<textarea rows="2" data-bind="messages.${i}.headline"></textarea></label>
+    <label>Short headline<input type="text" data-bind="messages.${i}.short"></label>
+    <label>Button<input type="text" data-bind="messages.${i}.cta"></label></div>`).join('');
+  $$('#msgFields button[data-del]').forEach(b => b.onclick = () => {
+    const d = +b.dataset.del;
+    state.messages.splice(d, 1);
+    // sizes on the removed message fall back to A; later ones shift down a letter
+    PRESETS.forEach(p => { const s = state.sizes[p.key]; s.message = s.message === d ? 0 : s.message > d ? s.message - 1 : s.message; });
+    save(); renderMessages(); bindAll(); redraw();
+  });
+  const opts = sel => state.messages.map((m, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${LETTERS[i]}: ${esc(excerpt(m))}</option>`).join('');
+  $('#msgSizes').innerHTML = PRESETS.map(p => `<span>${esc(p.name)}</span><select data-msg-size="${p.key}">${opts(state.sizes[p.key].message)}</select>`).join('');
+  $$('#msgSizes select').forEach(el => el.onchange = () => { state.sizes[el.dataset.msgSize].message = +el.value; save(); renderMessages(); redraw(); });
+  $('#msgPick').innerHTML = opts(msgIndex(presetOf(state.size)));
+  bindAll();
+}
+$('#msgPick').onchange = e => { state.sizes[state.size].message = +e.target.value; save(); renderMessages(); redraw(); };
+$('#addMsg').onclick = () => { state.messages.push({ ...state.messages[state.messages.length - 1] }); save(); renderMessages(); bindAll(); };
+$('#msgSpread').onclick = () => { PRESETS.forEach((p, i) => { state.sizes[p.key].message = i % state.messages.length; }); save(); renderMessages(); redraw(); };
+$('#msgAllA').onclick = () => { PRESETS.forEach(p => { state.sizes[p.key].message = 0; }); save(); renderMessages(); redraw(); };
 function renderSizeList() {
   let html = '', grp = '';
   for (const p0 of PRESETS) {
@@ -870,7 +930,7 @@ function renderSizeList() {
       <span><span class="nm">${esc(P.name)}</span>${cfg.endorser ? ' <span class="tagp">● photo</span>' : ''}</span><span class="dim">${P.w}×${P.h}</span></button></li>`;
   }
   $('#sizeList').innerHTML = html;
-  $$('#sizeList button[data-key]').forEach(b => b.onclick = () => { state.size = b.dataset.key; save(); renderSizeList(); setView('single'); });
+  $$('#sizeList button[data-key]').forEach(b => b.onclick = () => { state.size = b.dataset.key; playT = 0; save(); renderSizeList(); renderMessages(); bindAll(); setView('single'); });
   $$('#sizeList input[data-batch]').forEach(b => b.onchange = () => { state.sizes[b.dataset.batch].batch = b.checked; save(); renderSizeToggles(); });
   $('#customBox').hidden = state.size !== 'custom';
 }
@@ -1097,7 +1157,7 @@ async function gifBlob(P, onProg) {
 const animBlob = (P, onProg) => isGif(P) ? gifBlob(P, onProg) : videoBlob(P, onProg);
 
 const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'video/mp4': 'mp4' };
-const fileName = (P, blob) => `judicial-ad_${P.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}_${P.w}x${P.h}.${EXT[blob.type] || 'bin'}`;
+const fileName = (P, blob) => `judicial-ad_${P.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}_${P.w}x${P.h}${state.messages.length > 1 ? `_message-${LETTERS[msgIndex(P)]}` : ''}.${EXT[blob.type] || 'bin'}`;
 function download(blob, name) {
   const a = document.createElement('a'), url = URL.createObjectURL(blob);
   a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -1123,11 +1183,12 @@ $('#exportAnim').onclick = () => busy(async () => {
   progress(1, `Done: ${fileName(P, b)} (${kb(b)})${isGif(P) && b.size > GOOGLE_CAP ? ' — over 150 KB; try a shorter length' : ''}`);
 });
 $('#exportBatch').onclick = () => busy(async () => {
-  const list = PRESETS.filter(p => state.sizes[p.key].batch).map(p => presetOf(p.key));
-  if (!list.length) { alert('Check at least one size.'); return; }
+  const sizes = PRESETS.filter(p => state.sizes[p.key].batch).map(p => presetOf(p.key));
+  if (!sizes.length) { alert('Check at least one size.'); return; }
+  const list = state.exp.allMessages ? sizes.flatMap(P => state.messages.map((_, m) => ({ ...P, message: m }))) : sizes;
   const anim = state.exp.kind === 'anim', files = [], over = [];
   for (const [i, P] of list.entries()) {
-    const label = f => progress((i + f) / list.length, `${P.name} (${i + 1}/${list.length})`);
+    const label = f => progress((i + f) / list.length, `${P.name}, message ${LETTERS[msgIndex(P)]} (${i + 1}/${list.length})`);
     label(0);
     const add = async blob => {
       const name = fileName(P, blob);
@@ -1136,13 +1197,13 @@ $('#exportBatch').onclick = () => busy(async () => {
     };
     if (anim) {
       const b = await animBlob(P, label);
-      if (isGif(P) && b.size > GOOGLE_CAP) over.push(P.name);
+      if (isGif(P) && b.size > GOOGLE_CAP) over.push(`${P.name} ${LETTERS[msgIndex(P)]}`);
       await add(b);
       if (state.exp.stills && isGif(P)) await add(await stillBlob(P)); // Google asks for a still backup too
     } else await add(await stillBlob(P));
   }
-  if (files.length) download(await makeZip(files), `judicial-ads_${anim ? 'animated' : 'stills'}_${list.length}-sizes.zip`);
-  progress(1, `Done: ${list.length} sizes${over.length ? `. Over 150 KB: ${over.join(', ')} (try a shorter length)` : ''}`);
+  if (files.length) download(await makeZip(files), `judicial-ads_${anim ? 'animated' : 'stills'}_${list.length}-ads.zip`);
+  progress(1, `Done: ${list.length} ads${over.length ? `. Over 150 KB: ${over.join(', ')} (try a shorter length)` : ''}`);
 });
 
 /* minimal ZIP writer (stored, no compression: PNG and JPG are already compressed) */
@@ -1184,7 +1245,7 @@ $('#resetAll').onclick = () => { if (confirm('Reset all text, candidates, photo,
 
 /* ---------- boot ---------- */
 function initUI() {
-  renderCandFields(); bindAll(); renderSizeList(); renderSizeToggles(); renderThemes();
+  renderCandFields(); renderMessages(); bindAll(); renderSizeList(); renderSizeToggles(); renderThemes();
   $('#customW').value = state.custom.w; $('#customH').value = state.custom.h;
   $('#kitInput').value = state.font.kit;
   $$('.tab').find(t => t.dataset.tab === state.tab)?.click();

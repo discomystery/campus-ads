@@ -28,5 +28,6 @@ Then open http://localhost:8765 in Chrome (Chrome exports H.264 MP4 video, which
 - Motion: every ad animates in over ~4–5 seconds (band sweeps in, headline builds word by word, judges pop up out of their circles, last names land, endorser, button stretches open and pulses), then holds. Meta sizes export as MP4 (H.264 in Chrome/Edge); Google sizes export as animated GIFs under 150 KB that replay within Google's 30-second limit, with optional still backups.
 - Endorser (Roy Cooper): face and name only, on the larger sizes by default. Choose which sizes on the Endorser tab.
 - Election Day copy: every size says it's Election Day and when polls close (7:30 PM).
+- Alternate messages (Message tab): five ready-made headline/button sets, spread across the sizes so the ads don't all say the same thing. Edit, add or remove them, pick one per size, or export every message for every size for A/B testing.
 - Font: Roc Grotesk Wide and Condensed from Adobe Fonts. Add them to a web project, add this site's domain (and `localhost`), then paste the project ID on the Style tab. Until then it uses Archivo's wide and narrow widths.
 - Export PNG/JPG per size or every checked size as one ZIP. Google sizes are kept under 150 KB.
