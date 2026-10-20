@@ -75,6 +75,7 @@ function freshState() {
     colors: { ...DEFAULT_COLORS },
     theme: 'classic', themeAuto: false,
     pattern: 'none', sticker: false, guides: true,
+    tweaks: {}, // your manual moves and resizes: tweaks[size][layout][element] = { dx, dy, s }
     duration: 8, outro: 'hold', motion: 'pop', pulse: true,
     frame: 'circle', endFrame: 'circle',
     font: { kit: '', family: 'obviously-variable', css: '', dWeight: '500', hWeight: '800', cWeight: '500', wideW: 150, condW: 75, bodyW: 100 },
@@ -86,6 +87,7 @@ function merge(base, saved) {
   for (const k of Object.keys(base)) {
     if (!(k in saved)) continue;
     const b = base[k], s = saved[k];
+    if (k === 'tweaks') { base[k] = s && typeof s === 'object' && !Array.isArray(s) ? s : {}; continue; }
     if (b && typeof b === 'object' && !Array.isArray(b)) base[k] = merge(b, s);
     else if (Array.isArray(b)) {
       if (!Array.isArray(s)) continue;
@@ -485,7 +487,7 @@ function headerBlock(x, w, h, T, align, P, small) {
   const long = t.headline.trim() ? make(t.headline) : null, short = t.short.trim() ? make(t.short) : null;
   const res = long && (!short || long.s >= Math.max(16, m * .045)) ? long : short || long;
   if (!res || res.out.find(o => o.it.role === 'head').size < minText(P)) return null; // too small to read: leave it off
-  return { h: res.total, w: res.maxW, dur: stackDur(res), draw: (y, t0) => drawStack(DC, res, x, y, align, t0) };
+  return { h: res.total, w: res.maxW, bx: x, bw: w, dur: stackDur(res), draw: (y, t0) => drawStack(DC, res, x, y, align, t0) };
 }
 
 /* The four judges: a cutout on a disc, then "Justice Anita" / EARLS / "for Supreme Court".
@@ -536,7 +538,7 @@ function lineupBlock(x, w, h, T, ink, P) {
   const best = Math.max(...fits.map(rank));
   const F = fits.filter(f => rank(f) === best).reduce((a, b) => ((b.photos ? b.d * b.n : b.n) > (a.photos ? a.d * a.n : a.n) ? b : a));
   const width = F.cols * F.cw + (F.cols - 1) * F.gx;
-  return { h: F.total, w: width, bandTop: F.photos ? F.ph - F.d * .7 : -F.n * .6, dur: (C.length - 1) * JUDGE_STEP + 1, draw: (y, t0 = -1e9) => {
+  return { h: F.total, w: width, bx: x + (w - width) / 2, bw: width, bandTop: F.photos ? F.ph - F.d * .7 : -F.n * .6, dur: (C.length - 1) * JUDGE_STEP + 1, draw: (y, t0 = -1e9) => {
     const ctx = DC;
     let cy = y;
     for (let r = 0; r < F.rows; r++) {
@@ -574,7 +576,7 @@ function endBlock(x, w, h, T, ink, style, P) {
   if (style === 'stack') {
     const d = Math.min(w * .85, h * .7), res = name ? fitStack(MC, items, w, h - d - gap, Math.min(w * .12, d * .3)) : null;
     const textOk = res && res.s >= minText(P);
-    return { h: d + (textOk ? gap + res.total : 0), w, dur: 1, draw: (y, t0 = -1e9) => {
+    return { h: d + (textOk ? gap + res.total : 0), w, bx: x, bw: w, dur: 1, draw: (y, t0 = -1e9) => {
       const ctx = DC, p = prog(t0, .5);
       enter(ctx, p, x + w / 2, y + d / 2, [0, d * .4], popBack, () => drawPhoto(ctx, x + w / 2, y + d / 2, d, ring, ink));
       if (textOk) drawStack(ctx, res, x, y + d + gap, 'center', t0 + .3);
@@ -582,7 +584,7 @@ function endBlock(x, w, h, T, ink, style, P) {
   }
   const d = Math.min(h, w * .3), tw = Math.min(w - d - gap, w * .6), res = name ? fitStack(MC, items, tw, h * .6, Math.min(tw * .12, d * .3)) : null;
   const textOk = res && res.s >= minText(P), gw = d + (textOk ? gap + res.maxW : 0);
-  return { h: d, w: gw, dur: 1, draw: (y, t0 = -1e9) => {
+  return { h: d, w: gw, bx: x + (w - gw) / 2, bw: gw, dur: 1, draw: (y, t0 = -1e9) => {
     const ctx = DC, x0 = x + (w - gw) / 2, p = prog(t0, .5);
     enter(ctx, p, x0 + d / 2, y + d / 2, [d * .6, 0], popBack, () => drawPhoto(ctx, x0 + d / 2, y + d / 2, d, ring, ink));
     if (textOk) drawStack(ctx, { ...res, w: res.maxW }, x0 + d + gap, y + (d - res.total) / 2, 'left', t0 + .3);
@@ -610,7 +612,7 @@ function ctaFit(text, x, w, h, fill, fillInk, align, P, maxLines) {
   };
   const F = search(build, 4, Math.min(h * .5, 60));
   if (!F || F.s < minText(P) * .9) return null;
-  return { h: F.ph, w: F.pw, dur: .9, draw: (y, t0 = -1e9) => {
+  return { h: F.ph, w: F.pw, bx: align === 'center' ? x + (w - F.pw) / 2 : x, bw: F.pw, dur: .9, draw: (y, t0 = -1e9) => {
     const ctx = DC, px = align === 'center' ? x + (w - F.pw) / 2 : x, cx = px + F.pw / 2, cy = y + F.ph / 2;
     const p = prog(t0, .55), since = NOW - t0 - 1.4, m = state.motion;
     const pulse = state.pulse && Number.isFinite(since) && since > 0 ? 1 + .045 * Math.pow(Math.max(0, Math.sin(since * Math.PI / 1.1)), 6) : 1;
@@ -631,7 +633,7 @@ function discBlock(x, w, size, ink, align) {
   const text = state.text.disclaimer.trim();
   MC.font = font('medium', size);
   const tw = MC.measureText(text).width, s = tw > w ? size * w / tw : size;
-  return { h: s * 1.1, w: Math.min(tw, w), dur: .5, draw: (y, t0 = -1e9) => {
+  return { h: s * 1.1, w: Math.min(tw, w), bx: align === 'center' ? x + (w - Math.min(tw, w)) / 2 : x, bw: Math.min(tw, w), dur: .5, draw: (y, t0 = -1e9) => {
     const ctx = DC;
     ctx.save(); ctx.globalAlpha *= prog(t0, .5);
     ctx.font = font('medium', s); ctx.fillStyle = ink; ctx.textBaseline = 'alphabetic';
@@ -674,7 +676,7 @@ function stripeHeader(x, w, h, A, B, P, align) {
   const long = t.headline.trim() ? make(t.headline) : null, short = t.short.trim() ? make(t.short) : null;
   const res = long && (!short || long.s >= Math.max(18, m * .06)) ? long : short || long;
   if (!res || res.out.find(o => o.it.role === 'heavy' && o.it.r === 1).size < minText(P)) return null;
-  return { h: res.total, dur: stackDur(res), draw: (y, t0) => drawStack(DC, res, x, y, align, t0) };
+  return { h: res.total, bx: x, bw: w, dur: stackDur(res), draw: (y, t0) => drawStack(DC, res, x, y, align, t0) };
 }
 // the four name stacks share one size; office lines go first, then titles, until it's readable
 function fitNames(w, h, colors, P, align) {
@@ -697,7 +699,7 @@ function stripesPlan(P, T) {
   const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {}, M = msgOf(P), C = state.candidates;
   const A = T.disc, B = T.band, white = state.colors.white, black = state.colors.black, blue = state.colors.blue;
   const pad = Math.round(clamp(m * .06, 5, 56)), items = [], bands = [];
-  const put = (b, y, t0) => b && items.push({ b, y, t0 });
+  const put = (b, y, t0, id, x = b?.bx, w = b?.bw) => b && items.push({ b, y, t0, id, x, w });
   const at = (b, x) => b && { ...b, draw: (y, t0) => drawStack(DC, b.res, x, y, b.align, t0) };
   const S = P.safe ? { t: H * P.safe.t, b: H * (1 - P.safe.b), l: W * P.safe.l, r: W * (1 - P.safe.r) } : { t: pad * .5, b: H - pad * .5, l: pad, r: W - pad };
   const discOn = cfg.disclaimer && state.text.disclaimer.trim(), endOn = cfg.endorser && state.endorser.name.trim();
@@ -720,17 +722,17 @@ function stripesPlan(P, T) {
     const half = cw * .5, names = fitNames(half - pad * .4, rh * .78, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'left');
     if (!hdr || !names) return null;
     bands.push({ x: 0, y: 0, w: W, h: S.t + hh, color: A, from: 'top', t0: 0 });
-    put(hdr, S.t + (hh - hdr.h) / 2, t); t += hdr.dur * .6;
-    if (ew) { const e = endBlock(S.r - ew, ew, hh * .92, { ...T, disc: B }, inkOn(A), 'stack', P); if (e) put(e, S.t + (hh - e.h) / 2, t + .2); }
+    put(hdr, S.t + (hh - hdr.h) / 2, t, 'header'); t += hdr.dur * .6;
+    if (ew) { const e = endBlock(S.r - ew, ew, hh * .92, { ...T, disc: B }, inkOn(A), 'stack', P); if (e) put(e, S.t + (hh - e.h) / 2, t + .2, 'endorser'); }
     C.forEach((c, i) => {
       const y = S.t + hh + i * rh, color = i % 2 ? B : A, textRight = i % 2 === 0, t0 = .35 + i * STRIPE_STEP;
       bands.push({ x: 0, y: i === 3 ? y : y, w: W, h: rh + (i === 3 ? 0 : 1), color, from: textRight ? 'right' : 'left', t0 });
       const nx = textRight ? x0 + half + pad * .2 : x0 + pad * .2, nb = names[i];
-      put(at(nb, nx), y + (rh - nb.h) / 2, t0 + .25);
+      put(at(nb, nx), y + (rh - nb.h) / 2, t0 + .25, `name${i}`, nx, half - pad * .4);
       if (usePhotos()) {
         const d = Math.min(rh * .9, half * .8), px = (textRight ? x0 : x0 + half) + (half - d) / 2;
         const top = y + rh - d * POP - (state.frame === 'none' ? 0 : rh * .04);
-        put(photoBlock(i, px, d, y + rh, textRight ? B : A), top, t0 + .3);
+        put(photoBlock(i, px, d, y + rh, textRight ? B : A), top, t0 + .3, `photo${i}`, px, d);
       }
       t = t0 + .9;
     });
@@ -738,8 +740,8 @@ function stripesPlan(P, T) {
     const fy = S.t + hh + 4 * rh, disc = discOn ? discBlock(x0, cw, clamp(H * .018, 10.5, 22), black, 'center') : null;
     bands.push({ x: 0, y: fy, w: W, h: H - fy, color: white, from: 'bottom', t0: t - .4 });
     const fres = fitStack(MC, footItems(true), cw, fh - (disc ? disc.h + pad * .3 : 0) - pad * .4, Math.min(cw * .14, 120));
-    if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, x0, y, 'center', t0) }, fy + pad * .3 + (fh - (disc ? disc.h + pad * .3 : 0) - pad * .3 - fres.total) / 2, t - .2);
-    if (disc) put(disc, Math.min(H - pad * .5, S.b) - disc.h, .3);
+    if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, x0, y, 'center', t0) }, fy + pad * .3 + (fh - (disc ? disc.h + pad * .3 : 0) - pad * .3 - fres.total) / 2, t - .2, 'footer', x0, cw);
+    if (disc) put(disc, Math.min(H - pad * .5, S.b) - disc.h, .3, 'disclaimer');
     return { fam: 'stripes', bg: white, bands, items, sticker: null, m, end: t + (fres ? stackDur(fres) : 0) };
   }
   // columns: header, four judge columns, footer
@@ -751,20 +753,20 @@ function stripesPlan(P, T) {
   const names = fitNames(jw - pad * .5, photoD ? inner - photoD * POP - vpad : inner, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'center');
   if ((showHdr && !hdr) || !names) return null;
   if (hw) bands.push({ x: 0, y: 0, w: hw + 1, h: H, color: A, from: 'top', t0: 0 });
-  if (hdr) { put(hdr, vpad + (inner - hdr.h) / 2, t); t += hdr.dur * .6; }
+  if (hdr) { put(hdr, vpad + (inner - hdr.h) / 2, t, 'header'); t += hdr.dur * .6; }
   C.forEach((c, i) => {
     const x = hw + i * jw, color = i % 2 ? B : A, t0 = .35 + i * STRIPE_STEP, nb = names[i];
     bands.push({ x, y: 0, w: jw + 1, h: H, color, from: i % 2 ? 'bottom' : 'top', t0 });
     const blockH = nb.h + (photoD ? photoD * POP + vpad * .5 : 0), y0 = photoD ? vpad : vpad + (inner - nb.h) / 2;
-    put(at(nb, x + pad * .25), y0, t0 + .25);
-    if (photoD) put(photoBlock(i, x + (jw - photoD) / 2, photoD, H, i % 2 ? A : B), H - photoD * POP - (state.frame === 'none' ? 0 : vpad * .5), t0 + .3);
+    put(at(nb, x + pad * .25), y0, t0 + .25, `name${i}`, x + pad * .25, jw - pad * .5);
+    if (photoD) put(photoBlock(i, x + (jw - photoD) / 2, photoD, H, i % 2 ? A : B), H - photoD * POP - (state.frame === 'none' ? 0 : vpad * .5), t0 + .3, `photo${i}`, x + (jw - photoD) / 2, photoD);
     t = t0 + .9;
   });
   const fx = W - fw, disc = discOn ? discBlock(fx + pad * .3, fw - pad * .6, clamp(H * (strip ? .13 : .05), 7, 14), black, 'center') : null;
   bands.push({ x: fx, y: 0, w: fw, h: H, color: white, from: 'right', t0: t - .4 });
   const fres = fitStack(MC, footItems(!strip), fw - pad * .6, inner - (disc ? disc.h + vpad * .3 : 0), Math.min(fw * .2, 90));
-  if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, fx + pad * .3, y, 'center', t0) }, vpad + (inner - (disc ? disc.h + vpad * .3 : 0) - fres.total) / 2, t - .2);
-  if (disc) put(disc, H - vpad - disc.h, .3);
+  if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, fx + pad * .3, y, 'center', t0) }, vpad + (inner - (disc ? disc.h + vpad * .3 : 0) - fres.total) / 2, t - .2, 'footer', fx + pad * .3, fw - pad * .6);
+  if (disc) put(disc, H - vpad - disc.h, .3, 'disclaimer');
   return { fam: 'stripes', bg: white, bands, items, sticker: null, m, end: t + (fres ? stackDur(fres) : 0) };
 }
 
@@ -789,7 +791,7 @@ function makePlan(P, T) {
   const pad = Math.round(clamp(m * .06, 5, 64));
   const r = P.safe ? { x: W * P.safe.l, y: H * P.safe.t, w: W * (1 - P.safe.l - P.safe.r), h: H * (1 - P.safe.t - P.safe.b) }
     : { x: pad, y: pad, w: W - pad * 2, h: H - pad * 2 };
-  const fam = family(P, r), items = [], put = (b, y, t0) => b && items.push({ b, y, t0 });
+  const fam = family(P, r), items = [], put = (b, y, t0, id, x = b?.bx, w = b?.bw) => b && items.push({ b, y, t0, id, x, w });
   const endOn = !!cfg.endorser && state.endorser.name.trim(), discOn = cfg.disclaimer && state.text.disclaimer.trim();
   let band = null, sticker = null, t = .35; // the band sweeps in first, then everything follows in order
 
@@ -814,15 +816,15 @@ function makePlan(P, T) {
     const used = [top, cta, endRow].filter(Boolean);
     const lu = lineupBlock(r.x, r.w, avail - used.reduce((a, b) => a + b.h, 0) - gap * used.length - avail * .04, T, T.bandInk, P);
     const rows = [top, lu, endRow, cta].filter(Boolean), ys = spread(rows, r.y, avail, gap), yOf = b => ys[rows.indexOf(b)];
-    if (hdr) { put(hdr, endTop ? yOf(top) + (topH - hdr.h) / 2 : yOf(hdr), t); t += hdr.dur; }
+    if (hdr) { put(hdr, endTop ? yOf(top) + (topH - hdr.h) / 2 : yOf(hdr), t, 'header'); t += hdr.dur; }
     if (sticker && hdr) { sticker = { ...sticker, cx: r.x + r.w - sticker.d / 2, cy: yOf(top) + topH / 2, t0: t - .2 }; }
-    if (lu) { put(lu, yOf(lu), t - .25); t += lu.dur - .25; }
-    if (endTop) { put(endTop, yOf(top) + (topH - endTop.h) / 2, t - .3); t += endTop.dur - .3; }
-    if (endRow) { put(endRow, yOf(endRow), t - .3); t += endRow.dur - .3; }
-    if (cta) { put(cta, yOf(cta), t - .2); t += cta.dur - .2; }
+    if (lu) { put(lu, yOf(lu), t - .25, 'lineup'); t += lu.dur - .25; }
+    if (endTop) { put(endTop, yOf(top) + (topH - endTop.h) / 2, t - .3, 'endorser'); t += endTop.dur - .3; }
+    if (endRow) { put(endRow, yOf(endRow), t - .3, 'endorser'); t += endRow.dur - .3; }
+    if (cta) { put(cta, yOf(cta), t - .2, 'cta'); t += cta.dur - .2; }
     if (lu) { const ly = yOf(lu) + lu.bandTop; band = { x: 0, y: ly, w: W, h: H - ly, from: 'bottom' }; }
     else if (cta) { const cy = yOf(cta) - gap; band = { x: 0, y: cy, w: W, h: H - cy, from: 'bottom' }; }
-    if (disc) put(disc, r.y + r.h - disc.h, .3);
+    if (disc) put(disc, r.y + r.h - disc.h, .3, 'disclaimer');
   } else {
     // side by side: headline (and button) on the left, judges in the band on the right
     const gap = Math.round(fam === 'strip' ? Math.max(5, r.h * .16) : m * .07);
@@ -846,14 +848,14 @@ function makePlan(P, T) {
     const lu = lineupBlock(lx, lw, r.h, T, T.bandInk, P);
     const e = endW ? endBlock(r.x + r.w - endW, endW, r.h, T, T.bandInk, 'stack', P) : null;
     const c2 = ctaCol ? ctaBlock(r.x + r.w - ctaCol, ctaCol, r.h, T.cta, T.ctaInk, 'center', P) : null;
-    if (hdr) { put(hdr, ys[left.indexOf(hdr)], t); t += hdr.dur; }
-    if (lu) { put(lu, r.y + (r.h - lu.h) / 2, t - .3); t += lu.dur - .3; }
-    if (e) { put(e, r.y + (r.h - e.h) / 2, t - .3); t += e.dur - .3; }
-    if (cta) { put(cta, ys[left.indexOf(cta)], t - .2); t += cta.dur - .2; }
-    if (c2) { put(c2, r.y + (r.h - c2.h) / 2, t - .2); t += c2.dur - .2; }
-    if (discH) put(discBlock(r.x, leftW, discH * .8, T.ink, 'left'), r.y + r.h - discH, .3);
+    if (hdr) { put(hdr, ys[left.indexOf(hdr)], t, 'header'); t += hdr.dur; }
+    if (lu) { put(lu, r.y + (r.h - lu.h) / 2, t - .3, 'lineup'); t += lu.dur - .3; }
+    if (e) { put(e, r.y + (r.h - e.h) / 2, t - .3, 'endorser'); t += e.dur - .3; }
+    if (cta) { put(cta, ys[left.indexOf(cta)], t - .2, 'cta'); t += cta.dur - .2; }
+    if (c2) { put(c2, r.y + (r.h - c2.h) / 2, t - .2, 'cta'); t += c2.dur - .2; }
+    if (discH) put(discBlock(r.x, leftW, discH * .8, T.ink, 'left'), r.y + r.h - discH, .3, 'disclaimer');
   }
-  return { fam, bg: T.top, bands: band ? [{ ...band, color: T.band, t0: 0 }] : [], items, sticker, m, end: t };
+  return { fam, bg: T.top, bands: band ? [{ ...band, color: T.band, t0: 0, follow: band.from === 'bottom' ? 'lineup' : null }] : [], items, sticker, m, end: t };
 }
 
 /* ---------- drawing ---------- */
@@ -892,8 +894,32 @@ function drawSticker(ctx, S, T) {
   ctx.restore();
 }
 
+/* ---------- manual tweaks ---------- */
+// dx, dy are fractions of the ad's width and height so a custom size can change; s scales around the element's center
+const tweaksFor = P => state.tweaks?.[P.key]?.[layoutOf(P)] || {};
+function tweakOf(P, id, create) {
+  const L = layoutOf(P);
+  if (!create) return tweaksFor(P)[id] || null;
+  state.tweaks[P.key] ??= {}; state.tweaks[P.key][L] ??= {};
+  return (state.tweaks[P.key][L][id] ??= { dx: 0, dy: 0, s: 1 });
+}
+// where an element ends up after its tweak, in ad pixels
+function itemBox(P, it) {
+  const tk = tweaksFor(P)[it.id] || { dx: 0, dy: 0, s: 1 }, w = (it.w || 0) * tk.s, h = it.b.h * tk.s;
+  const cx = (it.x || 0) + (it.w || 0) / 2 + tk.dx * P.w, cy = it.y + it.b.h / 2 + tk.dy * P.h;
+  return { x: cx - w / 2, y: cy - h / 2, w, h, cx, cy };
+}
+function drawItem(ctx, P, it) {
+  const tk = it.id && tweaksFor(P)[it.id];
+  if (!tk) { it.b.draw(it.y, it.t0); return; }
+  const cx = (it.x || 0) + (it.w || 0) / 2, cy = it.y + it.b.h / 2;
+  ctx.save(); ctx.translate(cx + tk.dx * P.w, cy + tk.dy * P.h); ctx.scale(tk.s, tk.s); ctx.translate(-cx, -cy);
+  it.b.draw(it.y, it.t0); ctx.restore();
+}
+
 // a band sweeps in from one side (or fades in)
 function drawBand(ctx, P, b) {
+  if (b.follow) { const tk = tweaksFor(P)[b.follow]; if (tk?.dy) b = { ...b, y: b.y + tk.dy * P.h, h: b.h - tk.dy * P.h }; }
   const p = EASE.out(prog(b.t0, .65));
   if (p <= 0) return;
   ctx.fillStyle = b.color;
@@ -915,7 +941,7 @@ function render(ctx, P, k, editor, t = Infinity) {
     ctx.fillStyle = L.bg; ctx.fillRect(0, 0, P.w, P.h);
     if (L.fam !== 'stripes') drawPattern(ctx, P, T, L);
     for (const b of L.bands) drawBand(ctx, P, b);
-    L.items.forEach(it => it.b.draw(it.y, it.t0));
+    L.items.forEach(it => drawItem(ctx, P, it));
     if (L.sticker?.cx) drawSticker(ctx, L.sticker, T);
     // optional fade at the very end so a looping video starts again cleanly
     if (Number.isFinite(t) && state.outro === 'fade') {
@@ -953,7 +979,9 @@ function drawSingle(full) {
     c.width = Math.round(P.w * k * dpr); c.height = Math.round(P.h * k * dpr);
     c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
   }
+  viewK = k;
   render(c.getContext('2d'), P, k * dpr, true, playT);
+  drawSelection(c.getContext('2d'), P, k * dpr);
   $('#scrub').value = Math.round(playT / state.duration * 1000);
   $('#timeRead').textContent = `${playT.toFixed(1)}s`;
   if (!full) return;
@@ -965,6 +993,96 @@ function drawSingle(full) {
   if (!state.sizes[P.key]?.disclaimer || !state.text.disclaimer.trim()) warn.push('No disclaimer on this size.');
   $('#warnings').textContent = warn.join(' ');
 }
+/* ---------- direct editing: click, drag, resize ---------- */
+let selId = null, hoverId = null, dragging = null, viewK = 1;
+const ELEMENT_NAMES = { header: 'Headline', lineup: 'Judges', endorser: 'Endorser', cta: 'Button', disclaimer: 'Disclaimer', footer: 'Footer' };
+const nameOf = id => ELEMENT_NAMES[id] || (/^name\d/.test(id) ? `${state.candidates[+id.slice(4)].last} name` : /^photo\d/.test(id) ? `${state.candidates[+id.slice(5)].last} photo` : id);
+const currentItems = () => { const P = presetOf(state.size); return { P, items: plan(P, themeFor(P)).items.filter(it => it.id) }; };
+const adPoint = e => { const r = $('#ad').getBoundingClientRect(); return { x: (e.clientX - r.left) / viewK, y: (e.clientY - r.top) / viewK }; };
+const inBox = (p, b) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
+function hit(p) {
+  const { P, items } = currentItems();
+  // the smallest box under the pointer wins, so a name inside a big band can be picked
+  const under = items.filter(it => inBox(p, itemBox(P, it))).sort((a, b) => itemBox(P, a).w * itemBox(P, a).h - itemBox(P, b).w * itemBox(P, b).h);
+  return under[0]?.id || null;
+}
+const handleSize = () => 11 / viewK;
+function onHandle(p) {
+  const { P, items } = currentItems(), it = selId && items.find(i => i.id === selId);
+  if (!it) return false;
+  const b = itemBox(P, it), hs = handleSize();
+  return Math.abs(p.x - (b.x + b.w)) < hs && Math.abs(p.y - (b.y + b.h)) < hs;
+}
+function drawSelection(ctx, P, K) {
+  const { items } = currentItems();
+  ctx.setTransform(K, 0, 0, K, 0, 0);
+  const lw = 1.6 / viewK;
+  const hov = hoverId && hoverId !== selId && items.find(i => i.id === hoverId);
+  if (hov) { const b = itemBox(P, hov); ctx.strokeStyle = 'rgba(255,45,149,.75)'; ctx.lineWidth = lw; ctx.setLineDash([5 / viewK, 4 / viewK]); ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]); }
+  const sel = selId && items.find(i => i.id === selId);
+  if (sel) {
+    const b = itemBox(P, sel), hs = handleSize();
+    ctx.strokeStyle = '#ff2d95'; ctx.lineWidth = lw * 1.4; ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = '#fff'; ctx.fillRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs);
+    ctx.strokeRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs);
+  }
+}
+const ad = $('#ad');
+ad.addEventListener('pointerdown', e => {
+  const p = adPoint(e), { P, items } = currentItems();
+  // edit on the finished frame, where everything is in place
+  setPlaying(false); playT = state.duration;
+  if (onHandle(p)) {
+    const it = items.find(i => i.id === selId), b = itemBox(P, it), tk = tweakOf(P, selId) || { s: 1 };
+    dragging = { mode: 'size', cx: b.cx, cy: b.cy, d0: Math.max(4, Math.hypot(p.x - b.cx, p.y - b.cy)), s0: tk.s };
+  } else {
+    selId = hit(p);
+    if (selId) { const tk = tweakOf(P, selId) || { dx: 0, dy: 0 }; dragging = { mode: 'move', x0: p.x, y0: p.y, dx0: tk.dx, dy0: tk.dy }; }
+  }
+  if (dragging) ad.setPointerCapture(e.pointerId);
+  renderTweakBar(); drawSingle(false);
+});
+ad.addEventListener('pointermove', e => {
+  const p = adPoint(e), P = presetOf(state.size);
+  if (dragging) {
+    const tk = tweakOf(P, selId, true);
+    if (dragging.mode === 'move') { tk.dx = dragging.dx0 + (p.x - dragging.x0) / P.w; tk.dy = dragging.dy0 + (p.y - dragging.y0) / P.h; }
+    else tk.s = clamp(dragging.s0 * Math.hypot(p.x - dragging.cx, p.y - dragging.cy) / dragging.d0, .2, 4);
+    renderTweakBar(true); drawSingle(false); return;
+  }
+  const h = onHandle(p) ? selId : hit(p);
+  ad.style.cursor = onHandle(p) ? 'nwse-resize' : h ? 'move' : 'default';
+  if (h !== hoverId) { hoverId = h; drawSingle(false); }
+});
+const endDrag = () => { if (dragging) { dragging = null; save(); renderTweakBar(); } };
+ad.addEventListener('pointerup', endDrag);
+ad.addEventListener('pointercancel', endDrag);
+ad.addEventListener('pointerleave', () => { if (!dragging && hoverId) { hoverId = null; drawSingle(false); } });
+function renderTweakBar(valuesOnly) {
+  const P = presetOf(state.size), { items } = currentItems(), bar = $('#tweakBar');
+  if (selId && !items.some(i => i.id === selId)) selId = null;
+  const tk = selId && tweakOf(P, selId), any = Object.keys(tweaksFor(P)).length;
+  if (valuesOnly && selId && $('#tkSize')) { $('#tkSize').value = Math.round((tk?.s || 1) * 100); $('#tkOut').textContent = `${Math.round((tk?.s || 1) * 100)}%`; return; }
+  bar.innerHTML = selId
+    ? `<b>${esc(nameOf(selId))}</b><label>Size <input type="range" id="tkSize" min="20" max="300" value="${Math.round((tk?.s || 1) * 100)}"></label><output id="tkOut">${Math.round((tk?.s || 1) * 100)}%</output>
+       <button id="tkReset" class="ghost sm">Reset</button>${any ? '<button id="tkResetAll" class="ghost sm">Reset all on this size</button>' : ''}<span class="hint">Drag to move · corner to resize · arrow keys nudge · Esc to deselect</span>`
+    : `<span class="hint">Click anything on the ad to move or resize it. Tweaks apply to this size and layout only.</span>${any ? '<button id="tkResetAll" class="ghost sm">Reset all on this size</button>' : ''}`;
+  $('#tkSize')?.addEventListener('input', e => { const t = tweakOf(P, selId, true); t.s = +e.target.value / 100; $('#tkOut').textContent = `${e.target.value}%`; drawSingle(false); });
+  $('#tkSize')?.addEventListener('change', save);
+  $('#tkReset')?.addEventListener('click', () => { delete state.tweaks[P.key]?.[layoutOf(P)]?.[selId]; save(); renderTweakBar(); drawSingle(false); });
+  $('#tkResetAll')?.addEventListener('click', () => { if (state.tweaks[P.key]) delete state.tweaks[P.key][layoutOf(P)]; save(); renderTweakBar(); drawSingle(false); });
+}
+document.addEventListener('keydown', e => {
+  if (!selId || state.view !== 'single' || /input|textarea|select/i.test(e.target.tagName)) return;
+  const P = presetOf(state.size), step = e.shiftKey ? 10 : 1;
+  const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+  if (mv) { const tk = tweakOf(P, selId, true); tk.dx += mv[0] / P.w; tk.dy += mv[1] / P.h; }
+  else if (e.key === '+' || e.key === '=') tweakOf(P, selId, true).s *= 1.05;
+  else if (e.key === '-' || e.key === '_') tweakOf(P, selId, true).s /= 1.05;
+  else if (e.key === 'Escape') selId = null;
+  else return;
+  e.preventDefault(); save(); renderTweakBar(); drawSingle(false);
+});
 function tick(ts) {
   const dt = lastTs ? Math.min(.1, (ts - lastTs) / 1000) : 0;
   lastTs = ts;
@@ -988,7 +1106,7 @@ function drawGrid() {
   if (grid.children.length !== PRESETS.length) {
     grid.innerHTML = PRESETS.map(p => `<button class="ad-card" data-key="${p.key}"><canvas></canvas><div><b>${esc(p.name)}</b> <span></span></div></button>`).join('');
     $$('.ad-card', grid).forEach(b => {
-      b.onclick = () => { state.size = b.dataset.key; playT = 0; setView('single'); renderSizeList(); renderMessages(); renderLayouts(); bindAll(); save(); };
+      b.onclick = () => { state.size = b.dataset.key; playT = 0; selId = null; setView('single'); renderSizeList(); renderMessages(); renderLayouts(); renderTweakBar(); bindAll(); save(); };
       b.onmouseenter = () => playCard(b);
     });
   }
@@ -1121,7 +1239,7 @@ function renderLayouts() {
   $$('#layoutSizes select').forEach(el => el.onchange = () => { state.sizes[el.dataset.layoutSize].layout = el.value; save(); renderLayouts(); redraw(); });
   $('#layoutPick').innerHTML = opts(layoutOf(presetOf(state.size)));
 }
-$('#layoutPick').onchange = e => { state.sizes[state.size].layout = e.target.value; save(); renderLayouts(); redraw(); };
+$('#layoutPick').onchange = e => { state.sizes[state.size].layout = e.target.value; selId = null; save(); renderLayouts(); renderTweakBar(); redraw(); };
 $$('[data-layout-all]').forEach(b => b.onclick = () => {
   PRESETS.forEach((p, i) => { state.sizes[p.key].layout = b.dataset.layoutAll === 'mix' ? (i % 2 ? 'stripes' : 'lineup') : b.dataset.layoutAll; });
   save(); renderLayouts(); redraw();
@@ -1141,7 +1259,7 @@ function renderSizeList() {
       <span><span class="nm">${esc(P.name)}</span>${cfg.endorser ? ' <span class="tagp">● photo</span>' : ''}</span><span class="dim">${P.w}×${P.h}</span></button></li>`;
   }
   $('#sizeList').innerHTML = html;
-  $$('#sizeList button[data-key]').forEach(b => b.onclick = () => { state.size = b.dataset.key; playT = 0; save(); renderSizeList(); renderMessages(); renderLayouts(); bindAll(); setView('single'); });
+  $$('#sizeList button[data-key]').forEach(b => b.onclick = () => { state.size = b.dataset.key; playT = 0; selId = null; save(); renderSizeList(); renderMessages(); renderLayouts(); renderTweakBar(); bindAll(); setView('single'); });
   $$('#sizeList input[data-batch]').forEach(b => b.onchange = () => { state.sizes[b.dataset.batch].batch = b.checked; save(); renderSizeToggles(); });
   $('#customBox').hidden = state.size !== 'custom';
 }
@@ -1454,7 +1572,7 @@ $('#resetAll').onclick = () => { if (confirm('Reset all text, candidates, photo,
 /* ---------- boot ---------- */
 $('#motionPick').innerHTML = Object.entries(MOTIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
 function initUI() {
-  renderCandFields(); renderMessages(); renderLayouts(); bindAll(); renderSizeList(); renderSizeToggles(); renderThemes();
+  renderCandFields(); renderMessages(); renderLayouts(); bindAll(); renderSizeList(); renderTweakBar(); renderSizeToggles(); renderThemes();
   $('#customW').value = state.custom.w; $('#customH').value = state.custom.h;
   $('#kitInput').value = state.font.kit;
   $$('.tab').find(t => t.dataset.tab === state.tab)?.click();

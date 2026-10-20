@@ -183,3 +183,12 @@ label.check.pulse { margin-top: 26px; }
 .tokens { margin-top: 10px; font-size: 12px; color: var(--muted); }
 .tokens summary { cursor: pointer; font-weight: 700; }
 .tokens textarea { margin-top: 6px; }
+
+/* direct editing */
+.tweak-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px; font-size: 12px; max-width: 720px; min-height: 30px; }
+.tweak-bar b { color: #ff7ab8; }
+.tweak-bar label { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); }
+.tweak-bar input[type=range] { width: 140px; accent-color: #ff2d95; }
+.tweak-bar output { font-family: ui-monospace, Menlo, monospace; color: var(--muted); min-width: 38px; }
+.tweak-bar button.ghost.sm { margin: 0; padding: 4px 10px; font-size: 12px; }
+#ad { touch-action: none; }
