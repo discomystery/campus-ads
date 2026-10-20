@@ -76,7 +76,7 @@ function freshState() {
     pattern: 'none', sticker: false, guides: true,
     duration: 8, outro: 'hold', motion: 'pop', pulse: true,
     frame: 'circle', endFrame: 'circle',
-    font: { kit: '', display: 'roc-grotesk-wide', dWeight: '500', hWeight: '800', cond: 'roc-grotesk-condensed', cWeight: '500', body: 'roc-grotesk' },
+    font: { kit: '', family: 'obviously-variable', css: '', dWeight: '500', hWeight: '800', cWeight: '500', wideW: 150, condW: 75, bodyW: 100 },
     exp: { kind: 'anim', format: 'png', cap: true, zip: true, stills: true, allMessages: false },
   };
 }
@@ -120,50 +120,89 @@ function save() {
 }
 
 /* ---------- fonts ---------- */
-// Roc Grotesk Wide for headlines and last names, Condensed for the small name lines.
-// Until the Adobe Fonts project loads, Archivo's width axis stands in for both.
+/* One variable family (Obviously Variable from Adobe Fonts) drawn at three
+   widths: wide for the headline, last names and button, narrow for the name
+   lines and tag, normal for fine print. Adobe's embed code declares a single
+   weight and no width range, and a canvas can't use font-variation-settings,
+   so the studio reads the font file's address from the project's CSS and
+   registers it again once per width, each copy pinned to that width and open
+   to every weight. Until that works, Archivo's width axis stands in. */
 const FALLBACK = '"Archivo", sans-serif';
-function font(role, size) {
-  const f = state.font, px = `${Math.max(1, size).toFixed(2)}px`;
-  switch (role) {
-    case 'head': return `${f.dWeight} expanded ${px} "${f.display}", ${FALLBACK}`;
-    case 'heavy': return `${f.hWeight} expanded ${px} "${f.display}", ${FALLBACK}`;
-    case 'cond': return `${f.cWeight} condensed ${px} "${f.cond}", ${FALLBACK}`;
-    case 'condBold': return `700 condensed ${px} "${f.cond}", ${FALLBACK}`;
-    case 'medium': return `500 ${px} "${f.body}", ${FALLBACK}`;
-    default: return `400 ${px} "${f.body}", ${FALLBACK}`;
-  }
+const STRETCH = [[50, 'ultra-condensed'], [62.5, 'extra-condensed'], [75, 'condensed'], [87.5, 'semi-condensed'], [100, 'normal'], [112.5, 'semi-expanded'], [125, 'expanded'], [150, 'extra-expanded'], [200, 'ultra-expanded']];
+const nearestStretch = w => STRETCH.reduce((a, b) => (Math.abs(b[0] - w) < Math.abs(a[0] - w) ? b : a))[1];
+let varSrc = null, varNote = ''; // the variable font's src, once found
+const aliases = new Map();
+// a copy of the variable font pinned to one width
+function aliasFor(w) {
+  const key = Math.round(w);
+  if (aliases.has(key)) return aliases.get(key);
+  const name = `dbv-${key}`, face = new FontFace(name, varSrc, { weight: '1 1000', stretch: `${key}%`, style: 'normal' });
+  document.fonts.add(face);
+  face.load().then(() => { redraw(); }).catch(() => { varNote = 'The font file wouldn\'t load from this site. Check that this domain is added to the Adobe Fonts project.'; fontStatus(); });
+  aliases.set(key, name);
+  return name;
 }
-const ROLES = ['head', 'heavy', 'cond', 'condBold', 'medium', 'body'];
-const kitFamilies = () => [...new Set([...document.fonts].map(f => f.family.replace(/["']/g, '')))].filter(f => f !== 'Archivo');
+const ROLE = { // [weight setting or number, width setting]
+  head: ['dWeight', 'wideW'], heavy: ['hWeight', 'wideW'], cond: ['cWeight', 'condW'], condBold: [700, 'condW'], medium: [500, 'bodyW'], body: [400, 'bodyW'],
+};
+function font(role, size) {
+  const f = state.font, px = `${Math.max(1, size).toFixed(2)}px`, [wt, wd] = ROLE[role] || ROLE.body;
+  const weight = typeof wt === 'number' ? wt : f[wt], width = +f[wd] || 100;
+  const fam = varSrc ? `"${aliasFor(width)}", "${f.family}"` : `"${f.family}"`;
+  return `${weight} ${nearestStretch(width)} ${px} ${fam}, ${FALLBACK}`;
+}
+const ROLES = Object.keys(ROLE);
+const kitFamilies = () => [...new Set([...document.fonts].map(f => f.family.replace(/["']/g, '')))].filter(f => f !== 'Archivo' && !f.startsWith('dbv-'));
+// find the family's @font-face src in the project's CSS (fetched, or pasted in by hand)
+async function findVariableSource() {
+  const f = state.font;
+  let css = f.css.trim(), fetched = false;
+  if (!css && f.kit) {
+    try { const r = await fetch(`https://use.typekit.net/${f.kit}.css`); if (r.ok) { css = await r.text(); fetched = true; } } catch {}
+  }
+  let src = null;
+  for (const block of css.match(/@font-face\s*{[^}]*}/g) || []) {
+    const fam = block.match(/font-family\s*:\s*["']?([^"';]+)/i)?.[1].trim();
+    if (fam?.toLowerCase() !== f.family.trim().toLowerCase() || /font-style\s*:\s*(italic|oblique)/i.test(block)) continue;
+    const s = block.match(/src\s*:\s*([^;]+)/i)?.[1].trim();
+    if (!s) continue;
+    // Google-style CSS splits a font by language; prefer the Latin part
+    const range = block.match(/unicode-range\s*:\s*([^;]+)/i)?.[1] || '';
+    if (!src || !range || /U\+0000/i.test(range)) src = s;
+    if (!range || /U\+0000/i.test(range)) break;
+  }
+  if (src !== varSrc) { varSrc = src; aliases.clear(); }
+  varNote = src ? '' : css ? `"${f.family}" isn't in that CSS.` : f.kit && !fetched ? 'auto' : '';
+  return src;
+}
 function loadKit() {
   const id = state.font.kit;
   $$('link[data-kit]').forEach(l => { if (l.dataset.kit !== id) l.remove(); });
-  if (!id) { fontStatus(); return Promise.resolve(); }
-  if ($(`link[data-kit="${id}"]`)) return warmFonts();
-  return new Promise(res => {
+  const linked = !id || $(`link[data-kit="${id}"]`) ? Promise.resolve() : new Promise(res => {
     const l = document.createElement('link');
     l.rel = 'stylesheet'; l.href = `https://use.typekit.net/${id}.css`; l.dataset.kit = id;
-    l.onload = () => warmFonts().then(res);
-    l.onerror = () => { fontStatus('Could not load that Adobe Fonts project. Check the ID, and that this site\'s domain is added to the project.'); res(); };
+    l.onload = res;
+    l.onerror = () => { varNote = 'Could not load that Adobe Fonts project. Check the ID, and that this site\'s domain is added to the project.'; res(); };
     document.head.appendChild(l);
   });
+  return linked.then(findVariableSource).then(warmFonts);
 }
 function warmFonts() {
   return Promise.all(ROLES.map(r => document.fonts.load(font(r, 40)).catch(() => []))).then(() => { fontStatus(); redraw(); });
 }
-function fontStatus(msg) {
+function fontStatus() {
   const fams = kitFamilies(), f = state.font;
-  $('#famList').innerHTML = [...new Set([...fams, 'roc-grotesk', 'roc-grotesk-wide', 'roc-grotesk-condensed', 'roc-grotesk-compressed', 'roc-grotesk-extrawide'])]
-    .map(x => `<option value="${esc(x)}">`).join('');
-  const has = fam => [...document.fonts].some(x => x.family.replace(/["']/g, '') === fam && x.status === 'loaded');
-  const missing = [f.display, f.cond, f.body].filter(x => !has(x));
-  $('#fontStatus').innerHTML = msg ? `<span class="warn">${esc(msg)}</span>`
-    : !missing.length ? `✓ Using <b>${esc(f.display)}</b>, <b>${esc(f.cond)}</b> and <b>${esc(f.body)}</b>.`
-    : f.kit ? `Project loaded${fams.length ? ` (families: ${fams.map(esc).join(', ')})` : ''}, but ${missing.map(x => `"${esc(x)}"`).join(', ')} isn't in it. Using Archivo in its place.`
-    : 'No Adobe Fonts project yet. Using Archivo in place of Roc Grotesk.';
-  document.documentElement.style.setProperty('--display', `"${f.display}", ${FALLBACK}`);
-  document.documentElement.style.setProperty('--body', `"${f.body}", ${FALLBACK}, system-ui`);
+  $('#famList').innerHTML = [...new Set([...fams, 'obviously-variable'])].map(x => `<option value="${esc(x)}">`).join('');
+  const has = [...document.fonts].some(x => x.family.replace(/["']/g, '') === f.family && x.status === 'loaded');
+  const ok = varSrc && [...aliases.values()].some(n => [...document.fonts].some(x => x.family === n && x.status === 'loaded'));
+  $('#fontStatus').innerHTML = varNote && varNote !== 'auto' ? `<span class="warn">${esc(varNote)}</span>`
+    : ok ? `✓ <b>${esc(f.family)}</b> is live: every width and weight below is adjustable.`
+    : varSrc ? `Loading <b>${esc(f.family)}</b>…`
+    : varNote === 'auto' ? `${has ? `<b>${esc(f.family)}</b> loaded, but` : 'The project loaded, but'} the browser won't let the studio read its CSS, so widths and weights can't be set yet. Open <a href="https://use.typekit.net/${esc(f.kit)}.css" target="_blank" rel="noopener">the project's CSS</a>, copy everything, and paste it in the box below.`
+    : 'No Adobe Fonts project yet. Using Archivo in place of Obviously.';
+  if (varNote === 'auto') $('#cssBox').open = true;
+  document.documentElement.style.setProperty('--display', `"${f.family}", ${FALLBACK}`);
+  document.documentElement.style.setProperty('--body', `"${f.family}", ${FALLBACK}, system-ui`);
 }
 
 /* ---------- colors ---------- */
@@ -857,11 +896,12 @@ function bindAll() {
   $$('[data-bind]').forEach(el => {
     const p = el.dataset.bind, v = getPath(p);
     if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? '';
-    const out = $(`[data-out="${p}"]`); if (out) out.textContent = Number(v).toFixed(2);
+    const out = $(`[data-out="${p}"]`), fmt = x => p.startsWith('font.') ? `${Math.round(x)}%` : Number(x).toFixed(2);
+    if (out) out.textContent = fmt(v);
     el.oninput = el.onchange = () => {
       const nv = el.type === 'checkbox' ? el.checked : el.type === 'range' || el.type === 'number' ? +el.value : el.value;
-      setPath(p, nv); if (out) out.textContent = Number(nv).toFixed(2);
-      if (p.startsWith('font.')) warmFonts();
+      setPath(p, nv); if (out) out.textContent = fmt(nv);
+      if (p === 'font.css' || p === 'font.family') findVariableSource().then(warmFonts); else if (p.startsWith('font.')) warmFonts();
       if (p.startsWith('colors.') || p === 'theme') renderThemes();
       if (p.startsWith('endorser.')) drawThumb();
       if (p.startsWith('candidates.')) drawCandThumbs();
@@ -1018,8 +1058,8 @@ function drawThumb() {
 
 $('#kitLoad').onclick = () => {
   const raw = $('#kitInput').value.trim(), m = raw.match(/typekit\.net\/([a-z0-9]+)\.css/i) || raw.match(/^([a-z0-9]{5,12})$/i);
-  if (raw && !m) { fontStatus('That doesn\'t look like an Adobe Fonts project ID (something like "abc1def").'); return; }
-  state.font.kit = m ? m[1] : ''; $('#kitInput').value = state.font.kit; save(); loadKit();
+  if (raw && !m) { varNote = 'That doesn\'t look like an Adobe Fonts project ID (something like "abc1def").'; fontStatus(); return; }
+  state.font.kit = m ? m[1] : ''; $('#kitInput').value = state.font.kit; varNote = ''; save(); loadKit();
 };
 document.fonts.addEventListener('loadingdone', () => { fontStatus(); redraw(); });
 

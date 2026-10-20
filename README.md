@@ -30,5 +30,5 @@ Then open http://localhost:8765 in Chrome (Chrome exports H.264 MP4 video, which
 - Endorser (Roy Cooper): face and name only, on the larger sizes by default. Choose which sizes on the Endorser tab.
 - Election Day copy: every size says it's Election Day and when polls close (7:30 PM).
 - Alternate messages (Message tab): five ready-made headline/button sets, spread across the sizes so the ads don't all say the same thing. Edit, add or remove them, pick one per size, or export every message for every size for A/B testing.
-- Font: Roc Grotesk Wide and Condensed from Adobe Fonts. Add them to a web project, add this site's domain (and `localhost`), then paste the project ID on the Style tab. Until then it uses Archivo's wide and narrow widths.
+- Font: Obviously Variable from Adobe Fonts, drawn wide (headline, last names, button) and narrow (name lines, tag), with width and weight sliders on the Style tab. Add it to a web project, add this site's domain (and `localhost`), then paste the project ID. If the browser can't read the project's CSS, the Style tab asks you to paste it in. Until then it uses Archivo.
 - Export PNG/JPG per size or every checked size as one ZIP. Google sizes are kept under 150 KB.
