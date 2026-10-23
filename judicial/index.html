@@ -6,7 +6,7 @@
 <title>Down-Ballot Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Permanent+Marker&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -52,7 +52,8 @@
   </section>
 
   <section class="stage grid-stage" id="stageGrid" hidden>
-    <p class="muted">Every size at once, finished. Hover an ad to play it; click to edit it.</p>
+    <div class="grid-head"><p class="muted">Every size at once, finished. Hover an ad to play it; click to edit it.</p>
+      <label class="inline">Preview <select id="gridLayout"></select></label></div>
     <div class="ad-grid" id="adGrid"></div>
   </section>
 
@@ -89,6 +90,7 @@
         <label>Footer label<input type="text" data-bind="text.dayLabel"></label>
       </div>
       <label>Footer date <span class="hint">(the button text goes under it)</span><input type="text" data-bind="text.date"></label>
+      <label>Marker note <span class="hint">(handwritten note in the Scrapbook suite)</span><input type="text" data-bind="text.note"></label>
       <h3>Every size</h3>
       <label>Sticker <span class="hint">(starburst on tall feed sizes, if turned on in Style)</span>
         <input type="text" data-bind="text.sticker">
@@ -126,6 +128,7 @@
       <h3>Layout</h3>
       <p class="hint"><b>Lineup</b>: headline up top, judges standing in a row on the band. <b>Stripes</b>: a colored band per judge with the name on one side and the photo on the other, and a footer with the date (it turns into columns on wide banners). <b>Quadrants</b>: the same header and footer with the judges in a 2×2 checkerboard (for squarer sizes).</p>
       <div class="bx-head"><b>Which layout each size uses</b><span class="bx-links"><button data-layout-all="mix">Mix</button><button data-layout-all="lineup">All lineup</button><button data-layout-all="stripes">All stripes</button><button data-layout-all="quads">All quadrants</button></span></div>
+      <div class="bx-head"><b>New suites</b><span class="bx-links"><button data-layout-all="spotlight">All spotlight</button><button data-layout-all="frontrow">All front row</button><button data-layout-all="scrapbook">All scrapbook</button></span></div>
       <div id="layoutSizes" class="msg-sizes"></div>
       <h3>Motion</h3>
       <div class="row2">
@@ -217,5 +220,6 @@
 
 <script src="../vendor/mp4-muxer.js"></script>
 <script src="app.js"></script>
+<script src="suites.js"></script>
 </body>
 </html>

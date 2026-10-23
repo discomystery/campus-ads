@@ -192,3 +192,7 @@ label.check.pulse { margin-top: 26px; }
 .tweak-bar output { font-family: ui-monospace, Menlo, monospace; color: var(--muted); min-width: 38px; }
 .tweak-bar button.ghost.sm { margin: 0; padding: 4px 10px; font-size: 12px; }
 #ad { touch-action: none; }
+
+.grid-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.grid-head label.inline { display: flex; align-items: center; gap: 6px; margin: 0; }
+.grid-head select { width: auto; }

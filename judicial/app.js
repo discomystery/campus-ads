@@ -39,7 +39,8 @@ const presetOf = key => {
 /* ---------- state ---------- */
 const DEFAULT_COLORS = { yellow: '#EFA531', blue: '#2F4A9B', white: '#FFFFFF', black: '#1A1A1A' };
 const THEMES = { classic: 'White + yellow', blue: 'Blue + yellow', yellow: 'Yellow + blue', white: 'White + blue' };
-const cand = (prefix, last, office, short) => ({ prefix, last, office, short, showPrefix: true, showOffice: true, photo: null, zoom: 1, x: 0, y: 0 });
+// photo: the campaign's cutouts ship with the studio; an upload replaces one, Remove leaves it empty ('')
+const cand = (prefix, last, office, short, photo) => ({ prefix, last, office, short, showPrefix: true, showOffice: true, photo, zoom: 1, x: 0, y: 0 });
 // Alternate messages. Each size uses one, so the set of ads doesn't all say the same thing.
 const msg = (kicker, headline, short, cta) => ({ kicker, headline, short, cta });
 const DEFAULT_MESSAGES = [
@@ -61,18 +62,19 @@ function freshState() {
     size: 'meta45', view: 'single', tab: 'cands',
     messages: DEFAULT_MESSAGES.map(m => ({ ...m })),
     text: {
+      note: 'Don\'t skip these four!',
       stripeTag: 'Vote for justice!', dayLabel: 'Election Day', date: 'November 3rd',
       sticker: 'It\'s not too late!',
       disclaimer: 'Paid for by [Committee Name]',
     },
     candPhotos: true,
     candidates: [
-      cand('Justice Anita', 'Earls', 'for Supreme Court', 'Supreme Court'),
-      cand('Judge John', 'Arrowood', 'for Court of Appeals', 'Court of Appeals'),
-      cand('Judge Tobias', 'Hampson', 'for Court of Appeals', 'Court of Appeals'),
-      cand('Judge Christine', 'Walczyk', 'for Court of Appeals', 'Court of Appeals'),
+      cand('Justice Anita', 'Earls', 'for Supreme Court', 'Supreme Court', 'photos/earls.webp'),
+      cand('Judge John', 'Arrowood', 'for Court of Appeals', 'Court of Appeals', 'photos/arrowood.webp'),
+      cand('Judge Tobias', 'Hampson', 'for Court of Appeals', 'Court of Appeals', 'photos/hampson.webp'),
+      cand('Judge Christine', 'Walczyk', 'for Court of Appeals', 'Court of Appeals', 'photos/walczyk.webp'),
     ],
-    endorser: { photo: null, zoom: 1, x: 0, y: 0, name: 'Roy Cooper' },
+    endorser: { photo: 'photos/cooper.webp', zoom: 1, x: 0, y: 0, name: 'Roy Cooper' },
     sizes,
     custom: { w: 600, h: 500 },
     colors: { ...DEFAULT_COLORS },
@@ -155,6 +157,7 @@ const ROLE = { // [weight setting or number, width setting]
   head: ['dWeight', 'wideW'], heavy: ['hWeight', 'wideW'], last: ['hWeight', 'lastW'], cond: ['cWeight', 'condW'], condBold: [700, 'condW'], medium: [500, 'bodyW'], body: [400, 'bodyW'],
 };
 function font(role, size) {
+  if (role === 'marker') return `400 ${Math.max(1, size).toFixed(2)}px "Permanent Marker", cursive`;
   const f = state.font, px = `${Math.max(1, size).toFixed(2)}px`, [wt, wd] = ROLE[role] || ROLE.body;
   const weight = typeof wt === 'number' ? wt : f[wt], width = +f[wd] || 100;
   const fam = varSrc ? `"${aliasFor(width)}", "${f.family}"` : `"${f.family}"`;
@@ -443,8 +446,8 @@ const candImgs = [];
 function loadCandPhotos() {
   state.candidates.forEach((c, i) => {
     if (!c.photo) { candImgs[i] = null; return; }
-    if (candImgs[i]?.src === c.photo) return;
-    const img = new Image();
+    if (candImgs[i]?._src === c.photo) return;
+    const img = new Image(); img._src = c.photo;
     img.onload = () => { drawCandThumbs(); redraw(); };
     img.src = c.photo; candImgs[i] = img;
   });
@@ -834,6 +837,8 @@ function plan(P, T) {
   return L;
 }
 function makePlan(P, T) {
+  const suite = SUITES[layoutOf(P)];
+  if (suite) { const S = suite(P, T); if (S) return S; }
   if (layoutOf(P) === 'stripes' || layoutOf(P) === 'quads') { const S = stripesPlan(P, T); if (S) return S; }
   const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {};
   const pad = Math.round(clamp(m * .06, 5, 64));
@@ -979,17 +984,23 @@ function drawBand(ctx, P, b) {
 }
 /* t is seconds into the animation (Infinity = the finished ad). If the
    intro is longer than the chosen length allows, it plays faster. */
+let CUR_P = null; // the size being rendered right now (an export marks GIFs with gif: true)
 function render(ctx, P, k, editor, t = Infinity) {
   ctx.setTransform(k, 0, 0, k, 0, 0);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
+  CUR_P = P;
   const T = themeFor(P), L = plan(P, T);
   const speed = Math.max(1, L.end / Math.max(1, state.duration - 1.5));
   NOW = state.motion === 'none' ? Infinity : t * speed; DC = ctx;
   try {
     ctx.fillStyle = L.bg; ctx.fillRect(0, 0, P.w, P.h);
-    if (L.fam !== 'stripes') drawPattern(ctx, P, T, L);
+    if (L.fam !== 'stripes' && L.fam !== 'suite') drawPattern(ctx, P, T, L);
     for (const b of L.bands) drawBand(ctx, P, b);
-    L.items.forEach(it => drawItem(ctx, P, it));
+    // suites can paint under the items, over them (full-frame scenes), and keep some items on top of everything
+    L.under?.(ctx, P);
+    L.items.forEach(it => !it.top && drawItem(ctx, P, it));
+    L.over?.(ctx, P);
+    L.items.forEach(it => it.top && drawItem(ctx, P, it));
     if (L.sticker?.cx) drawSticker(ctx, L.sticker, T);
     // optional fade at the very end so a looping video starts again cleanly
     if (Number.isFinite(t) && state.outro === 'fade') {
@@ -1043,7 +1054,7 @@ function drawSingle(full) {
 }
 /* ---------- direct editing: click, drag, resize ---------- */
 let selId = null, hoverId = null, dragging = null, viewK = 1;
-const ELEMENT_NAMES = { header: 'Headline', lineup: 'Judges', endorser: 'Endorser', cta: 'Button', disclaimer: 'Disclaimer', footer: 'Footer' };
+const ELEMENT_NAMES = { header: 'Headline', lineup: 'Judges', endorser: 'Endorser', cta: 'Button', disclaimer: 'Disclaimer', footer: 'Footer', ticker: 'Ticker', group: 'Judges', names: 'Names', note: 'Marker note', burst: 'Starburst', kicker: 'Tag', cards: 'Judge cards' };
 const nameOf = id => ELEMENT_NAMES[id] || (/^name\d/.test(id) ? `${state.candidates[+id.slice(4)].last} name` : /^photo\d/.test(id) ? `${state.candidates[+id.slice(5)].last} photo` : id);
 const currentItems = () => { const P = presetOf(state.size); return { P, items: plan(P, themeFor(P)).items.filter(it => it.id) }; };
 const adPoint = e => { const r = $('#ad').getBoundingClientRect(); return { x: (e.clientX - r.left) / viewK, y: (e.clientY - r.top) / viewK }; };
@@ -1154,14 +1165,14 @@ function drawGrid() {
   if (grid.children.length !== PRESETS.length) {
     grid.innerHTML = PRESETS.map(p => `<button class="ad-card" data-key="${p.key}"><canvas></canvas><div><b>${esc(p.name)}</b> <span></span></div></button>`).join('');
     $$('.ad-card', grid).forEach(b => {
-      b.onclick = () => { state.size = b.dataset.key; playT = 0; selId = null; setView('single'); renderSizeList(); renderMessages(); renderLayouts(); renderTweakBar(); bindAll(); save(); };
+      b.onclick = () => { state.size = b.dataset.key; if ($('#gridLayout').value) state.sizes[b.dataset.key].layout = $('#gridLayout').value; playT = 0; selId = null; setView('single'); renderSizeList(); renderMessages(); renderLayouts(); renderTweakBar(); bindAll(); save(); };
       b.onmouseenter = () => playCard(b);
     });
   }
   PRESETS.forEach((p0, i) => drawCard(grid.children[i], Infinity));
 }
 function drawCard(card, t) {
-  const P = presetOf(card.dataset.key), c = $('canvas', card), dpr = window.devicePixelRatio || 1;
+  const P0 = presetOf(card.dataset.key), gl = $('#gridLayout')?.value, P = gl ? { ...P0, layout: gl } : P0, c = $('canvas', card), dpr = window.devicePixelRatio || 1;
   const k = Math.min(1, 380 / P.w, 340 / P.h);
   if (c.width !== Math.round(P.w * k * dpr)) { c.width = Math.round(P.w * k * dpr); c.height = Math.round(P.h * k * dpr); }
   c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
@@ -1226,7 +1237,7 @@ function renderCandFields() {
   $$('#candFields input[data-photo]').forEach(el => el.onchange = e => {
     const f = e.target.files[0]; if (f) readCutout(f, url => { Object.assign(state.candidates[+el.dataset.photo], { photo: url, zoom: 1, x: 0, y: 0 }); save(); renderCandFields(); bindAll(); loadCandPhotos(); });
   });
-  $$('#candFields button[data-clear]').forEach(b => b.onclick = () => { state.candidates[+b.dataset.clear].photo = null; save(); renderCandFields(); bindAll(); loadCandPhotos(); });
+  $$('#candFields button[data-clear]').forEach(b => b.onclick = () => { state.candidates[+b.dataset.clear].photo = ''; save(); renderCandFields(); bindAll(); loadCandPhotos(); });
 }
 function drawCandThumbs() {
   const T = themeFor(presetOf(state.size));
@@ -1286,7 +1297,11 @@ function renderLayouts() {
   $('#layoutSizes').innerHTML = PRESETS.map(p => `<span>${esc(p.name)}</span><select data-layout-size="${p.key}">${opts(layoutOf(p))}</select>`).join('');
   $$('#layoutSizes select').forEach(el => el.onchange = () => { state.sizes[el.dataset.layoutSize].layout = el.value; save(); renderLayouts(); redraw(); });
   $('#layoutPick').innerHTML = opts(layoutOf(presetOf(state.size)));
+  const gl = $('#gridLayout'), keep = gl.value;
+  gl.innerHTML = `<option value="">Each size's own layout</option>` + Object.entries(LAYOUTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  gl.value = keep;
 }
+$('#gridLayout').onchange = () => drawGrid();
 $('#layoutPick').onchange = e => { state.sizes[state.size].layout = e.target.value; selId = null; save(); renderLayouts(); renderTweakBar(); redraw(); };
 $$('[data-layout-all]').forEach(b => b.onclick = () => {
   PRESETS.forEach((p, i) => { state.sizes[p.key].layout = b.dataset.layoutAll === 'mix' ? mixLayout(p, i) : b.dataset.layoutAll; });
@@ -1357,7 +1372,7 @@ $('#photoFile').onchange = e => {
   readCutout(f, url => { Object.assign(state.endorser, { photo: url, zoom: 1, x: 0, y: 0 }); save(); bindAll(); loadPhoto(); });
   e.target.value = '';
 };
-$('#photoClear').onclick = () => { state.endorser.photo = null; save(); loadPhoto(); };
+$('#photoClear').onclick = () => { state.endorser.photo = ''; save(); loadPhoto(); };
 function drawThumb() {
   const c = $('#photoThumb'), ctx = c.getContext('2d');
   ctx.clearRect(0, 0, c.width, c.height);
@@ -1478,14 +1493,16 @@ function lzw(idx, out) {
 async function gifBlob(P, onProg) {
   const c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
   const ctx = c.getContext('2d', { willReadFrequently: true }), W = P.w, H = P.h;
-  const grab = t => { render(ctx, P, 1, false, t); return ctx.getImageData(0, 0, W, H).data; };
+  // GIFs skip the looping ambient motion (ticker, shine, rays), which would bloat every frame
+  const GP = { ...P, gif: true }, grab = t => { render(ctx, GP, 1, false, t); return ctx.getImageData(0, 0, W, H).data; };
   // palette from a handful of moments, weighted toward the finished ad
   const hist = new Uint32Array(32768);
   for (const t of [.5, 1.5, 2.5, 3.5, Infinity, Infinity]) {
     const d = grab(t);
     for (let i = 0; i < d.length; i += 8) hist[(d[i] >> 3) << 10 | (d[i + 1] >> 3) << 5 | d[i + 2] >> 3]++;
   }
-  const tries = [[12, 255], [10, 160], [8, 110], [6, 72], [5, 48]];
+  // frame rate, colors: stepped down until the file fits (scene-by-scene designs need the low end)
+  const tries = [[12, 255], [10, 160], [8, 110], [6, 72], [5, 48], [4, 40], [3, 32], [2, 28]];
   let blob = null;
   for (const [ti, [fps, colors]] of tries.entries()) {
     const pal = medianCut(hist, colors), lookup = new Int16Array(32768).fill(-1);
@@ -1617,6 +1634,18 @@ $('#loadSettings').onchange = async e => {
 };
 $('#resetAll').onclick = () => { if (confirm('Reset all text, candidates, photo, colors and size settings?')) { state = freshState(); save(); initUI(); } };
 
+/* ---------- suites (judicial/suites.js) plug in here ---------- */
+const SUITES = {};
+window.DBS = {
+  state: () => state, now: () => NOW, ctx: () => DC, curP: () => CUR_P, MC,
+  clamp, rgba, EASE, prog, enter, popBack, font, words, wrap, fitStack, stackAt, drawStack, drawLines, stackDur, blockH, ASC, search, pillTextTop, minText, msgOf, usePhotos,
+  headerBlock, lineupBlock, endBlock, ctaBlock, discBlock, drawPhoto,
+  judgeImg: i => { const im = candImgs[i]; return im && im.complete && im.naturalWidth ? im : null; },
+  endorserImg: () => (photoImg && photoImg.naturalWidth ? photoImg : null),
+  register(key, label, fn) { SUITES[key] = fn; LAYOUTS[key] = label; renderLayouts(); redraw(); },
+  redraw,
+};
+
 /* ---------- boot ---------- */
 $('#motionPick').innerHTML = Object.entries(MOTIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
 function initUI() {
@@ -1631,6 +1660,6 @@ initUI();
 requestAnimationFrame(tick);
 warmFonts();
 // for headless checks: render a preset to a data URL
-window.__renderSize = (key, t) => { const P = presetOf(key), c = document.createElement('canvas'); c.width = P.w; c.height = P.h; render(c.getContext('2d'), P, 1, false, t ?? Infinity); return c.toDataURL('image/png'); };
+window.__renderSize = (key, t, layout) => { const P = layout ? { ...presetOf(key), layout } : presetOf(key), c = document.createElement('canvas'); c.width = P.w; c.height = P.h; render(c.getContext('2d'), P, 1, false, t ?? Infinity); return c.toDataURL('image/png'); };
 window.__exportAnim = async key => { const b = await animBlob(presetOf(key)); return { type: b.type, size: b.size, data: [...new Uint8Array(await b.arrayBuffer())] }; };
 })();
