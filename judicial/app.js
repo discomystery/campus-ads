@@ -15,7 +15,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const STORE_KEY = 'judstudio.v2';
 /* the page and its scripts carry the same build id (bump-build.sh sets it); browsers cache scripts for a
    few minutes, so if a page ever runs with scripts from another build, ask for a reload instead of half-working */
-const BUILD = '20261023170240';
+const BUILD = '20261023171512';
 function staleBuild() {
   if ($('#staleBar')) return;
   const bar = document.createElement('div');
@@ -859,7 +859,7 @@ function drawSingle(full) {
   $('#warnings').textContent = warn.join(' ');
 }
 /* ---------- direct editing: slides, layers, click, drag, snapping, the inspector ---------- */
-let selId = null, hoverId = null, dragging = null, viewK = 1, editSlide = null, guides = [], dragNote = '';
+let selId = null, selIds = [], hoverId = null, dragging = null, viewK = 1, editSlide = null, guides = [], dragNote = '';
 const curPlan = () => { const P = presetOf(state.size); return { P, L: plan(P, themeFor(P)) }; };
 // the slide on screen: the one being edited, or (while it plays) the one the animation is on
 function shownSlide() {
@@ -873,6 +873,25 @@ const currentItems = () => {
   const { P, L } = curPlan(), k = shownSlide();
   return { P, L, items: L.items.filter(it => it.id && (!L.slides?.length || it.slide === k || it.slide === '*') && !it.off?.(P)) };
 };
+/* the selection: selId is the element clicked last, selIds everything selected (selId among them).
+   Code elsewhere may just set selId; syncSel squares the two up against what's on the slide. */
+function syncSel(items) {
+  if (!selId) { selIds = []; return; }
+  const here = new Set(items.map(i => i.id));
+  selIds = selIds.filter(id => here.has(id));
+  if (!here.has(selId)) selId = selIds[selIds.length - 1] || null;
+  else if (!selIds.includes(selId)) selIds = [selId];
+}
+const selItems = () => { const { items } = currentItems(); syncSel(items); return selIds.map(id => items.find(i => i.id === id)).filter(Boolean); };
+const selectOnly = id => { selId = id || null; selIds = id ? [id] : []; };
+function toggleSel(id) {
+  if (selIds.includes(id)) { selIds = selIds.filter(x => x !== id); selId = selIds[selIds.length - 1] || null; }
+  else { selIds = [...selIds, id]; selId = id; }
+}
+// what moves when the selection moves: no backgrounds, and no line whose card is moving anyway
+const movers = list => list.filter(it => !it.fixed && !(it.parent && list.some(o => o.id === it.parent)));
+const unionBox = bs => { const x = Math.min(...bs.map(b => b.x)), y = Math.min(...bs.map(b => b.y)), x1 = Math.max(...bs.map(b => b.x + b.w)), y1 = Math.max(...bs.map(b => b.y + b.h)); return { x, y, w: x1 - x, h: y1 - y, cx: (x + x1) / 2, cy: (y + y1) / 2 }; };
+const groupBox = (P, list) => list.length === 1 ? itemBox(P, list[0]) : unionBox(list.map(it => itemBox(P, it)));
 const nameOf = id => currentItems().items.find(i => i.id === id)?.name || id;
 const adPoint = e => { const r = $('#ad').getBoundingClientRect(); return { x: (e.clientX - r.left) / viewK, y: (e.clientY - r.top) / viewK }; };
 const inBox = (p, b) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
@@ -885,9 +904,9 @@ function hit(p) {
 }
 const handleSize = () => 11 / viewK;
 function onHandle(p) {
-  const { P, items } = currentItems(), it = selId && items.find(i => i.id === selId);
-  if (!it || it.fixed) return false;
-  const b = itemBox(P, it), hs = handleSize();
+  const { P } = currentItems(), list = movers(selItems());
+  if (!list.length) return false;
+  const b = groupBox(P, list), hs = handleSize();
   return Math.abs(p.x - (b.x + b.w)) < hs && Math.abs(p.y - (b.y + b.h)) < hs;
 }
 // exact numbers: positions and sizes in ad pixels, whatever the element's parent (a card) does
@@ -907,21 +926,22 @@ function marginBox(P) {
 const twinsOf = (L, id) => /^s\d+\./.test(id) ? L.items.filter(o => o.id && o.id !== id && /^s\d+\./.test(o.id) && o.id.replace(/^s\d+\./, '') === id.replace(/^s\d+\./, '')) : [];
 const slideLabel = (L, o) => o.slide === '*' ? 'every slide' : L.slides?.length > 1 ? `slide ${o.slide + 1}` : '';
 
-/* snapping: a dragged element's edges and center snap to the ad's edges, center and margins, to the
-   other elements on the slide, and to its twins on the other slides (so names line up slide to slide) */
-function snapMove(P, it, off) {
+/* snapping: the dragged selection's edges and center snap to the ad's edges, center and margins, to the
+   other elements on the slide, and (one element) to its twins on the other slides, so names line up slide to slide */
+function snapMove(P, list, off) {
   guides = [];
-  const b = itemBox(P, it);
+  const b = groupBox(P, list), one = list.length === 1 ? list[0] : null;
   dragNote = `X ${Math.round(b.x)}  Y ${Math.round(b.y)}`;
   if (!state.snap || off) return;
-  const L = it._L, M = marginBox(P), k = shownSlide(), T = tweaksFor(P), thr = 6 / viewK;
+  const L = list[0]._L, M = marginBox(P), k = shownSlide(), T = tweaksFor(P), thr = 6 / viewK;
   const xs = [[0, 'edge'], [P.w / 2, 'center'], [P.w, 'edge'], [M.x, 'margin'], [M.x + M.w, 'margin']].map(([v, kind]) => ({ v, kind }));
   const ys = [[0, 'edge'], [P.h / 2, 'center'], [P.h, 'edge'], [M.y, 'margin'], [M.y + M.h, 'margin']].map(([v, kind]) => ({ v, kind }));
-  const skip = new Set([it.id, it.parent].filter(Boolean));
-  L.items.forEach(o => { if (o.parent === it.id) skip.add(o.id); });
-  const twins = new Set(twinsOf(L, it.id).map(o => o.id));
+  const skip = new Set();
+  list.forEach(it => { skip.add(it.id); if (it.parent) skip.add(it.parent); });
+  L.items.forEach(o => { if (o.parent && skip.has(o.parent)) skip.add(o.id); });
+  const twins = new Set(one ? twinsOf(L, one.id).map(o => o.id) : []);
   L.items.forEach(o => {
-    if (!o.id || o.fixed || skip.has(o.id) || T[o.id]?.hidden) return;
+    if (!o.id || o.fixed || skip.has(o.id) || T[o.id]?.hidden || o.off?.(P)) return;
     const here = !L.slides?.length || o.slide === k || o.slide === '*';
     if (!here && !twins.has(o.id)) return;
     const ob = itemBox(P, o), kind = here ? 'item' : 'twin';
@@ -932,8 +952,8 @@ function snapMove(P, it, off) {
   const best = (edges, tg) => { let r = null; for (const e of edges) for (const t of tg) { const d = t.v - e, a = Math.abs(d) - (t.kind === 'twin' ? .01 : 0); if (Math.abs(d) < thr && (!r || a < r.a)) r = { d, a, t }; } return r; };
   const bx = best([b.x, b.cx, b.x + b.w], xs), by = best([b.y, b.cy, b.y + b.h], ys);
   if (!bx && !by) return;
-  moveBy(P, it, bx?.d || 0, by?.d || 0);
-  const nb = itemBox(P, it), notes = [];
+  list.forEach(it => moveBy(P, it, bx?.d || 0, by?.d || 0));
+  const nb = groupBox(P, list), notes = [];
   const span = (t, lo, hi, full) => t.ob && t.kind === 'item' ? [Math.min(lo, t.ob[full ? 'y' : 'x']), Math.max(hi, t.ob[full ? 'y' : 'x'] + t.ob[full ? 'h' : 'w'])] : [0, full ? P.h : P.w];
   if (bx) { const [a, z] = span(bx.t, nb.y, nb.y + nb.h, true); guides.push({ axis: 'x', v: bx.t.v, a, z, kind: bx.t.kind }); if (bx.t.kind === 'twin') notes.push(`lines up with ${bx.t.o.name} (${slideLabel(L, bx.t.o)})`); }
   if (by) { const [a, z] = span(by.t, nb.x, nb.x + nb.w, false); guides.push({ axis: 'y', v: by.t.v, a, z, kind: by.t.kind }); if (by.t.kind === 'twin' && !notes.length) notes.push(`lines up with ${by.t.o.name} (${slideLabel(L, by.t.o)})`); }
@@ -958,9 +978,10 @@ function snapSize(P, it, off) {
 const SEL = '#ff2d95';
 function drawSelection(ctx, P, K) {
   const { items } = currentItems();
+  syncSel(items);
   ctx.setTransform(K, 0, 0, K, 0, 0);
   const lw = 1.6 / viewK, inset = it => { const b = itemBox(P, it); return it.fixed ? { x: b.x + lw * 2, y: b.y + lw * 2, w: b.w - lw * 4, h: b.h - lw * 4 } : b; };
-  const hov = hoverId && hoverId !== selId && items.find(i => i.id === hoverId);
+  const hov = !dragging && hoverId && !selIds.includes(hoverId) && items.find(i => i.id === hoverId);
   if (hov) { const b = inset(hov); ctx.strokeStyle = 'rgba(255,45,149,.75)'; ctx.lineWidth = lw; ctx.setLineDash([5 / viewK, 4 / viewK]); ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]); }
   // alignment guides while dragging
   for (const g of guides) {
@@ -970,36 +991,55 @@ function drawSelection(ctx, P, K) {
     if (g.axis === 'x') { ctx.moveTo(g.v, g.a); ctx.lineTo(g.v, g.z); } else { ctx.moveTo(g.a, g.v); ctx.lineTo(g.z, g.v); }
     ctx.stroke(); ctx.setLineDash([]);
   }
-  const sel = selId && items.find(i => i.id === selId);
-  if (sel) {
-    const b = inset(sel), hs = handleSize();
-    ctx.strokeStyle = SEL; ctx.lineWidth = lw * 1.4; ctx.strokeRect(b.x, b.y, b.w, b.h);
-    if (!sel.fixed) { ctx.fillStyle = '#fff'; ctx.fillRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs); ctx.strokeRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs); }
-    // a readout under the box while dragging: position, size, or the font size it matched
-    if (dragging && dragNote) {
-      const fsz = 11.5 / viewK; ctx.font = `600 ${fsz}px system-ui, sans-serif`;
-      const tw = ctx.measureText(dragNote).width, pw = tw + fsz * 1.2, ph = fsz * 1.8;
-      let x = clamp(b.x + b.w / 2 - pw / 2, 2 / viewK, P.w - pw - 2 / viewK), y = b.y + b.h + fsz * .8;
-      if (y + ph > P.h) y = b.y - ph - fsz * .6;
-      ctx.fillStyle = SEL; ctx.beginPath(); ctx.roundRect(x, y, pw, ph, ph / 2); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(dragNote, x + fsz * .6, y + ph / 2); ctx.textBaseline = 'alphabetic';
-    }
+  const list = selIds.map(id => items.find(i => i.id === id)).filter(Boolean), mv = movers(list);
+  list.forEach(it => { const b = inset(it); ctx.strokeStyle = SEL; ctx.lineWidth = lw * (list.length > 1 ? 1.1 : 1.4); ctx.strokeRect(b.x, b.y, b.w, b.h); });
+  let gb = null;
+  if (mv.length) {
+    gb = groupBox(P, mv);
+    if (mv.length > 1) { ctx.strokeStyle = SEL; ctx.lineWidth = lw; ctx.setLineDash([7 / viewK, 4 / viewK]); ctx.strokeRect(gb.x - 3 / viewK, gb.y - 3 / viewK, gb.w + 6 / viewK, gb.h + 6 / viewK); ctx.setLineDash([]); }
+    const hs = handleSize(); ctx.fillStyle = '#fff'; ctx.lineWidth = lw * 1.4;
+    ctx.fillRect(gb.x + gb.w - hs / 2, gb.y + gb.h - hs / 2, hs, hs); ctx.strokeRect(gb.x + gb.w - hs / 2, gb.y + gb.h - hs / 2, hs, hs);
+  }
+  // a box dragged across the ad selects what it touches
+  if (dragging?.mode === 'marquee' && dragging.moved) {
+    const r = dragging.rect; ctx.fillStyle = 'rgba(255,45,149,.08)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = SEL; ctx.lineWidth = lw; ctx.strokeRect(r.x, r.y, r.w, r.h);
+  }
+  // a readout under the selection while dragging: position, size, or the font size it matched
+  if (gb && dragging && dragging.mode !== 'marquee' && dragNote) {
+    const b = gb, fsz = 11.5 / viewK; ctx.font = `600 ${fsz}px system-ui, sans-serif`;
+    const tw = ctx.measureText(dragNote).width, pw = tw + fsz * 1.2, ph = fsz * 1.8;
+    let x = clamp(b.x + b.w / 2 - pw / 2, 2 / viewK, P.w - pw - 2 / viewK), y = b.y + b.h + fsz * .8;
+    if (y + ph > P.h) y = b.y - ph - fsz * .6;
+    ctx.fillStyle = SEL; ctx.beginPath(); ctx.roundRect(x, y, pw, ph, ph / 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(dragNote, x + fsz * .6, y + ph / 2); ctx.textBaseline = 'alphabetic';
   }
 }
 const ad = $('#ad');
 const startEditing = () => { if (!frozen()) editSlide = shownSlide(); setPlaying(false); };
+/* on the ad: click selects, Shift/Cmd/Ctrl-click adds or removes, drag moves the selection, the corner
+   handle resizes it, and a drag that starts on empty space (or a background) draws a selection box */
+const addKey = e => e.shiftKey || e.metaKey || e.ctrlKey;
 ad.addEventListener('pointerdown', e => {
   const p = adPoint(e);
   // editing freezes the slide that was on screen, fully built
   startEditing();
   const { P, items } = currentItems();
-  if (onHandle(p)) {
-    const it = items.find(i => i.id === selId), b = itemBox(P, it), tk = tweakOf(P, selId) || NO_TWEAK;
-    dragging = { mode: 'size', it, cx: b.cx, cy: b.cy, d0: Math.max(4, Math.hypot(p.x - b.cx, p.y - b.cy)), s0: tk.s ?? 1 };
+  syncSel(items);
+  const add = addKey(e);
+  if (!add && onHandle(p)) {
+    const list = movers(selItems()), gb = groupBox(P, list);
+    dragging = { mode: 'size', list, cx: gb.cx, cy: gb.cy, d0: Math.max(4, Math.hypot(p.x - gb.cx, p.y - gb.cy)),
+      start: list.map(it => { const b = itemBox(P, it); return { it, s0: tweakOf(P, it.id)?.s ?? 1, cx: b.cx, cy: b.cy }; }) };
   } else {
-    selId = hit(p);
-    const it = selId && items.find(i => i.id === selId);
-    if (it && !it.fixed) { const tk = tweakOf(P, selId) || NO_TWEAK; dragging = { mode: 'move', it, x0: p.x, y0: p.y, dx0: tk.dx || 0, dy0: tk.dy || 0, moved: false }; }
+    const id = hit(p), it = id && items.find(i => i.id === id);
+    if (it && !it.fixed) {
+      if (add) toggleSel(id);
+      else if (selIds.includes(id)) selId = id; // keep the group, so it can be dragged together
+      else selectOnly(id);
+      const list = movers(selItems());
+      if (!add && list.length) dragging = { mode: 'move', list, x0: p.x, y0: p.y, start: list.map(o => { const tk = tweakOf(P, o.id) || NO_TWEAK; return { dx: tk.dx || 0, dy: tk.dy || 0 }; }), moved: false };
+    } else dragging = { mode: 'marquee', x0: p.x, y0: p.y, rect: { x: p.x, y: p.y, w: 0, h: 0 }, base: add ? [...selIds] : [], hitId: id, add, moved: false };
   }
   if (dragging) ad.setPointerCapture(e.pointerId);
   renderSlideBar(); renderTweakBar(); drawSingle(false);
@@ -1007,23 +1047,44 @@ ad.addEventListener('pointerdown', e => {
 ad.addEventListener('pointermove', e => {
   const p = adPoint(e), P = presetOf(state.size);
   if (dragging) {
-    const tk = tweakOf(P, selId, true), it = dragging.it, ps = parentScale(P, it);
+    if (dragging.mode !== 'size' && !dragging.moved && Math.hypot(p.x - dragging.x0, p.y - dragging.y0) < 3 / viewK) return; // a click, not a drag
+    dragging.moved = true;
     if (dragging.mode === 'move') {
-      if (!dragging.moved && Math.hypot(p.x - dragging.x0, p.y - dragging.y0) < 3 / viewK) return; // a click, not a drag
-      dragging.moved = true;
-      tk.dx = dragging.dx0 + (p.x - dragging.x0) / (P.w * ps); tk.dy = dragging.dy0 + (p.y - dragging.y0) / (P.h * ps);
-      snapMove(P, it, e.altKey);
+      dragging.list.forEach((it, j) => { const tk = tweakOf(P, it.id, true), ps = parentScale(P, it), s0 = dragging.start[j];
+        tk.dx = s0.dx + (p.x - dragging.x0) / (P.w * ps); tk.dy = s0.dy + (p.y - dragging.y0) / (P.h * ps); });
+      snapMove(P, dragging.list, e.altKey);
+    } else if (dragging.mode === 'size') {
+      const f = Math.hypot(p.x - dragging.cx, p.y - dragging.cy) / dragging.d0;
+      if (dragging.list.length === 1) { const it = dragging.list[0]; tweakOf(P, it.id, true).s = clamp(dragging.start[0].s0 * f, .1, 6); snapSize(P, it, e.altKey); }
+      else {
+        // a group grows from its middle: each element scales and its center moves out with it
+        dragging.start.forEach(({ it, s0, cx, cy }) => {
+          tweakOf(P, it.id, true).s = clamp(s0 * f, .1, 6);
+          const b = itemBox(P, it); moveBy(P, it, dragging.cx + (cx - dragging.cx) * f - b.cx, dragging.cy + (cy - dragging.cy) * f - b.cy);
+        });
+        guides = []; dragNote = `${Math.round(f * 100)}%`;
+      }
     } else {
-      tk.s = clamp(dragging.s0 * Math.hypot(p.x - dragging.cx, p.y - dragging.cy) / dragging.d0, .1, 6);
-      snapSize(P, it, e.altKey);
+      const r = { x: Math.min(p.x, dragging.x0), y: Math.min(p.y, dragging.y0), w: Math.abs(p.x - dragging.x0), h: Math.abs(p.y - dragging.y0) };
+      dragging.rect = r;
+      const touched = currentItems().items.filter(it => { if (it.fixed) return false; const b = itemBox(P, it); return b.x < r.x + r.w && b.x + b.w > r.x && b.y < r.y + r.h && b.y + b.h > r.y; }).map(it => it.id);
+      selIds = [...new Set([...dragging.base, ...touched])]; selId = selIds[selIds.length - 1] || null;
+      renderTweakBar(); drawSingle(false); return;
     }
     renderTweakBar(true); drawSingle(false); return;
   }
   const h = onHandle(p) ? selId : hit(p), it = h && currentItems().items.find(i => i.id === h);
-  ad.style.cursor = onHandle(p) ? 'nwse-resize' : it ? (it.fixed ? 'pointer' : 'move') : 'default';
+  ad.style.cursor = onHandle(p) ? 'nwse-resize' : it ? (it.fixed ? 'crosshair' : 'move') : 'crosshair';
   if (h !== hoverId) { hoverId = h; drawSingle(false); markLayer(); }
 });
-const endDrag = () => { if (dragging) { const moved = dragging.mode === 'size' || dragging.moved; dragging = null; guides = []; dragNote = ''; if (moved) save(); renderTweakBar(); renderSlideBar(); drawSingle(false); } };
+const endDrag = () => {
+  if (!dragging) return;
+  const d = dragging; dragging = null; guides = []; dragNote = '';
+  // a click (no drag) on a background or empty space: select the background, or clear
+  if (d.mode === 'marquee' && !d.moved) { if (d.add) { if (d.hitId) toggleSel(d.hitId); } else selectOnly(d.hitId); }
+  if (d.mode !== 'marquee' && d.moved) save();
+  renderTweakBar(); renderSlideBar(); drawSingle(false);
+};
 ad.addEventListener('pointerup', endDrag);
 ad.addEventListener('pointercancel', endDrag);
 ad.addEventListener('pointerleave', () => { if (!dragging && hoverId) { hoverId = null; drawSingle(false); markLayer(); } });
@@ -1081,18 +1142,26 @@ function renderLayers() {
   const { P, L, items } = currentItems(), T = tweaksFor(P), k = shownSlide(), multi = L.slides?.length > 1, sname = multi ? L.slides[k].name : '';
   const short = it => { const n = it.name || it.id; return sname && n.startsWith(sname + ' · ') ? n.slice(sname.length + 3) : n; };
   const row = it => { const tk = T[it.id], edited = tk && Object.keys(tk).some(x => x === 'dx' || x === 'dy' ? Math.abs(tk[x]) > 1e-6 : x === 's' ? tk.s !== 1 : x !== 'hidden');
-    return `<div class="layer${it.id === selId ? ' sel' : ''}${tk?.hidden ? ' off' : ''}${it.parent ? ' child' : ''}" data-id="${esc(it.id)}"><span class="lk">${ICONS[kindOf(it)]}</span><span class="ln">${esc(short(it))}</span>${edited ? '<i class="dot" title="Edited"></i>' : ''}<button class="eye" data-eye="${esc(it.id)}" title="${tk?.hidden ? 'Show' : 'Hide'}">${tk?.hidden ? ICONS.eyeOff : ICONS.eye}</button></div>`; };
+    return `<div class="layer${selIds.includes(it.id) ? ' sel' : ''}${tk?.hidden ? ' off' : ''}${it.parent ? ' child' : ''}" data-id="${esc(it.id)}"><span class="lk">${ICONS[kindOf(it)]}</span><span class="ln">${esc(short(it))}</span>${edited ? '<i class="dot" title="Edited"></i>' : ''}<button class="eye" data-eye="${esc(it.id)}" title="${tk?.hidden ? 'Show' : 'Hide'}">${tk?.hidden ? ICONS.eyeOff : ICONS.eye}</button></div>`; };
   // top of the stack first, children right under their card
   const order = list => { const top = list.filter(i => !i.parent).reverse(), out = []; top.forEach(t => { out.push(t); list.filter(c => c.parent === t.id).forEach(c => out.push(c)); }); list.filter(c => c.parent && !list.some(t => t.id === c.parent)).forEach(c => out.push(c)); return out; };
   const here = items.filter(i => i.slide !== '*' || !multi), all = multi ? items.filter(i => i.slide === '*') : [];
-  const any = Object.keys(T).length;
+  const any = Object.keys(T).length, shown = [...order(here), ...order(all)];
   box.innerHTML = `<div class="layers-head"><b>${multi ? `Slide ${k + 1} · ${esc(sname)}` : 'This ad'}</b>${multi && !frozen() ? '<span class="hint">Playing. Click a layer or a slide to edit.</span>' : ''}</div>
     ${order(here).map(row).join('')}
     ${all.length ? `<div class="layers-sub">On every slide</div>${order(all).map(row).join('')}` : ''}
     ${any ? '<button id="tkResetAll" class="ghost sm">Reset all edits on this size</button>' : ''}
-    <p class="hint">Edits apply to this size in this design. Drag on the ad to move, drag the corner to resize, arrow keys nudge (Shift = 10px). Hold Alt while dragging to skip snapping.</p>`;
+    <p class="hint">Edits apply to this size in this design. Shift- or Cmd-click (here or on the ad) to select several, or drag a box across the ad. Drag to move, drag the corner to resize, arrow keys nudge (Shift = 10px). Hold Alt while dragging to skip snapping.</p>`;
   $$('.layer', box).forEach(r => {
-    r.onclick = e => { if (e.target.closest('[data-eye]')) return; startEditing(); selId = r.dataset.id; renderSlideBar(); renderTweakBar(); drawSingle(false); };
+    r.onclick = e => {
+      if (e.target.closest('[data-eye]')) return;
+      startEditing(); syncSel(items);
+      const id = r.dataset.id;
+      if (e.shiftKey && selId) { const a = shown.findIndex(o => o.id === selId), z = shown.findIndex(o => o.id === id); const [lo, hi] = a < z ? [a, z] : [z, a]; selIds = [...new Set([...selIds, ...shown.slice(lo, hi + 1).map(o => o.id)])]; selId = id; }
+      else if (e.metaKey || e.ctrlKey) toggleSel(id);
+      else selectOnly(id);
+      renderSlideBar(); renderTweakBar(); drawSingle(false);
+    };
     r.onmouseenter = () => { hoverId = r.dataset.id; drawSingle(false); };
     r.onmouseleave = () => { hoverId = null; drawSingle(false); };
   });
@@ -1158,7 +1227,14 @@ function syncInspector(P, it, except) {
 }
 function renderTweakBar(valuesOnly) {
   const { P, L, items } = currentItems(), box = $('#inspector');
-  if (selId && !items.some(i => i.id === selId)) selId = null;
+  syncSel(items);
+  const many = selIds.map(id => items.find(i => i.id === id)).filter(Boolean);
+  if (many.length > 1) {
+    const key = 'multi:' + selIds.join(',');
+    if (valuesOnly && box.dataset.id === key && !box.hidden) { syncMulti(P, many); return; }
+    renderLayers(); $('#settings').hidden = true; box.hidden = false; box.dataset.id = key;
+    renderMulti(P, L, many, box); return;
+  }
   const it = selId && items.find(i => i.id === selId);
   if (valuesOnly && it && box.dataset.id === it.id && !box.hidden) { syncInspector(P, it); return; }
   renderLayers();
@@ -1220,20 +1296,138 @@ function renderTweakBar(valuesOnly) {
   $$('[data-colclear]', box).forEach(b => b.onclick = () => { edit(t => { delete t[b.dataset.colclear]; }); after(); });
   $('#tkHide', box).onclick = () => { edit(t => { t.hidden = !t.hidden; }); after(); };
   $('#tkReset', box).onclick = () => { delete state.tweaks[P.key]?.[layoutOf(P)]?.[it.id]; after(); };
-  $('#tkClose', box).onclick = () => { selId = null; renderTweakBar(); drawSingle(false); };
+  $('#tkClose', box).onclick = () => { selectOnly(null); renderTweakBar(); drawSingle(false); };
   $('#tkTwins', box)?.addEventListener('click', () => {
     copyToTwins(P, it, twins); after();
   });
 }
+
+/* the inspector for several elements: shared values (blank where they differ), and changes apply to each */
+const ALIGN_MULTI = ALIGN.map(([k, t, svg]) => [k, { l: 'Align left edges', ch: 'Align centers (across)', r: 'Align right edges', t: 'Align tops', cv: 'Align middles (down)', b: 'Align bottoms' }[k] + ' (Shift: move the group to the ad)', svg]);
+const DIST = [
+  ['h', 'Even across', '<rect x="1.5" y="4" width="3" height="8"/><rect x="6.5" y="4" width="3" height="8"/><rect x="11.5" y="4" width="3" height="8"/>'],
+  ['v', 'Even down', '<rect x="4" y="1.5" width="8" height="3"/><rect x="4" y="6.5" width="8" height="3"/><rect x="4" y="11.5" width="8" height="3"/>'],
+];
+function multiValues(P, list) {
+  const mv = movers(list), gb = mv.length ? groupBox(P, mv) : null, tx = list.filter(it => it.textual && it.fs), hi = list.filter(it => it.hasHi);
+  const same = (arr, f) => { const vs = arr.map(f).filter(v => v !== '' && v != null); return vs.length && vs.every(v => Math.abs(v - vs[0]) < .05) ? vs[0] : ''; };
+  const iv = it => inspectorValues(P, it);
+  return { x: gb ? Math.round(gb.x) : '', y: gb ? Math.round(gb.y) : '', w: gb ? Math.round(gb.w) : '', h: gb ? Math.round(gb.h) : '',
+    fs: same(tx, it => iv(it).fs), weight: same(tx, it => iv(it).weight), width: same(tx, it => iv(it).width), hweight: same(hi, it => iv(it).hweight), delay: same(mv, it => iv(it).delay) };
+}
+function syncMulti(P, list, except) {
+  const v = multiValues(P, list), box = $('#inspector');
+  $$('[data-num]', box).forEach(el => { if (el !== except && el !== document.activeElement) el.value = v[el.dataset.num]; });
+  $$('[data-sl]', box).forEach(el => { if (el !== except && v[el.dataset.sl] !== '') el.value = v[el.dataset.sl]; });
+}
+function setMulti(P, list, key, v) {
+  const mv = movers(list);
+  if (key === 'x' || key === 'y') { const gb = groupBox(P, mv), d = v - gb[key]; mv.forEach(it => moveBy(P, it, key === 'x' ? d : 0, key === 'y' ? d : 0)); return; }
+  const to = key === 'hweight' ? list.filter(it => it.hasHi) : key === 'delay' ? mv : list.filter(it => it.textual && it.fs);
+  to.forEach(it => setValue(P, it, key, v));
+}
+function renderMulti(P, L, list, box) {
+  const v = multiValues(P, list), mv = movers(list), tx = list.filter(it => it.textual && it.fs), T = tweaksFor(P);
+  const hi = list.filter(it => it.hasHi), fl = list.filter(it => it.fillable), fr = list.filter(it => it.framable);
+  const same = (arr, k) => { const vs = arr.map(it => T[it.id]?.[k] || ''); return vs.every(x => x === vs[0]) ? vs[0] : ''; };
+  const num = (key, label, o = {}) => `<label class="num"><span>${label}</span><input type="number" data-num="${key}" value="${v[key]}" placeholder="Mixed" step="${o.step ?? 1}"${o.min != null ? ` min="${o.min}"` : ''}${o.max != null ? ` max="${o.max}"` : ''}${o.ro ? ' readonly tabindex="-1"' : ''}>${o.unit ? `<i>${o.unit}</i>` : ''}</label>`;
+  const slider = (key, min, max, step) => `<input type="range" class="sl" data-sl="${key}" min="${min}" max="${max}" step="${step}" value="${v[key] === '' ? (min + max) / 2 : v[key]}">`;
+  const sec = (title, body) => `<section><h4>${title}</h4>${body}</section>`;
+  const names = list.map(it => it.name || it.id), twinsAll = [...new Set(list.flatMap(it => twinsOf(L, it.id).map(o => o.id)))];
+  const anyShown = list.some(it => !T[it.id]?.hidden);
+  const parts = [`<div class="insp-head"><div><small>${esc(names.slice(0, 3).join(', '))}${names.length > 3 ? ` and ${names.length - 3} more` : ''}</small><b>${list.length} elements</b></div><button id="tkClose" class="x" title="Done (Esc)">✕</button></div>`];
+  if (mv.length) parts.push(sec('Position', `<div class="grid2">${num('x', 'X', { unit: 'px' })}${num('y', 'Y', { unit: 'px' })}${num('w', 'W', { ro: true, unit: 'px' })}${num('h', 'H', { ro: true, unit: 'px' })}</div>
+    ${mv.length > 1 ? `<div class="align-row">${ALIGN_MULTI.map(([k, t, svg]) => `<button data-align="${k}" title="${t}"><svg viewBox="0 0 16 16">${svg}</svg></button>`).join('')}</div>
+    <div class="align-row two">${DIST.map(([k, t, svg]) => `<button data-dist="${k}" title="${t}: equal gaps (3 or more)"${mv.length < 3 ? ' disabled' : ''}><svg viewBox="0 0 16 16">${svg}</svg> ${t}</button>`).join('')}</div>` : ''}
+    <p class="hint">Aligns to each other. Shift-click to move the whole group to the ad's margins or center. Drag the corner on the ad to resize them together.</p>`));
+  if (tx.length) parts.push(sec(`Text <span class="cnt">${tx.length}</span>`, `<div class="ctl">${num('fs', 'Font size', { min: 2, max: 900, step: .5, unit: 'px' })}${slider('fs', 4, 300, .5)}</div>
+    <div class="ctl">${num('weight', 'Weight', { min: 100, max: 900, step: 10 })}${slider('weight', 100, 900, 10)}</div>
+    <div class="ctl">${num('width', 'Width', { min: 25, max: 200, unit: '%' })}${slider('width', 25, 200, 1)}</div>
+    ${colorCtl('color', 'Color', same(tx, 'color'))}
+    ${hi.length ? colorCtl('hcolor', 'Highlight', same(hi, 'hcolor')) + `<div class="ctl">${num('hweight', 'Highlight weight', { min: 100, max: 900, step: 10 })}${slider('hweight', 100, 900, 10)}</div>` : ''}`));
+  if (fr.length) {
+    const cur = same(fr, 'frame'), FR = { circle: 'Circle', square: 'Rounded square', none: 'No frame' };
+    parts.push(sec(`Headshot frame <span class="cnt">${fr.length}</span>`, `<div class="seg-row">${[['', 'Default'], ...Object.entries(FR)].map(([k, l]) => `<button data-frame="${k}" class="${k === cur && (k || fr.every(it => !T[it.id]?.frame)) ? 'on' : ''}">${l}</button>`).join('')}</div>`));
+  }
+  if (fl.length) parts.push(sec(`Fill <span class="cnt">${fl.length}</span>`, colorCtl('fill', 'Fill', same(fl, 'fill'))));
+  if (mv.length) parts.push(sec('Timing', `<div class="ctl">${num('delay', 'Delay', { min: -1, max: 3, step: .05, unit: 's' })}${slider('delay', -1, 3, .05)}</div>
+    ${mv.length > 1 ? `<div class="stagger"><span class="lab">Stagger</span><label class="num"><input type="number" id="tkStag" value="0.1" step=".05" min="0" max="1"><i>s</i></label><button id="tkStagGo" class="ghost sm">One after another</button></div><p class="hint">Gives each a little more delay than the one before it, top to bottom, then left to right.</p>` : ''}`));
+  parts.push(`<section class="insp-actions">
+    ${twinsAll.length ? `<button id="tkTwins" class="ghost">Copy these edits to the other slides</button>` : ''}
+    <div class="btn-row"><button id="tkHide" class="ghost">${anyShown ? 'Hide all' : 'Show all'}</button><button id="tkReset" class="ghost">Reset these</button></div>
+    <p class="hint">Shift- or Cmd-click to add or remove. Arrow keys nudge them together. Esc clears.</p></section>`);
+  box.innerHTML = parts.join('');
+  const after = () => { save(); renderTweakBar(); renderSlideBar(); drawSingle(false); };
+  const each = (arr, fn) => arr.forEach(it => fn(tweakOf(P, it.id, true), it));
+  $$('[data-num]', box).forEach(el => {
+    el.oninput = () => { const x = parseFloat(el.value); if (!Number.isFinite(x) || el.readOnly) return; setMulti(P, list, el.dataset.num, x); syncMulti(P, list, el); drawSingle(false); };
+    el.onchange = () => { save(); syncMulti(P, list); renderLayers(); renderSlideBar(); };
+    el.onkeydown = e => { if (e.key === 'Enter') el.blur(); };
+  });
+  $$('[data-sl]', box).forEach(el => {
+    el.oninput = () => { setMulti(P, list, el.dataset.sl, +el.value); syncMulti(P, list, el); drawSingle(false); };
+    el.onchange = () => { save(); renderLayers(); renderSlideBar(); };
+  });
+  $$('[data-align]', box).forEach(b => b.onclick = e => {
+    const k = b.dataset.align, gb = groupBox(P, mv);
+    if (e.shiftKey) { // the group as one block, to the ad's margins or center
+      const M = marginBox(P);
+      const dx = k === 'l' ? M.x - gb.x : k === 'r' ? M.x + M.w - gb.x - gb.w : k === 'ch' ? P.w / 2 - gb.cx : 0;
+      const dy = k === 't' ? M.y - gb.y : k === 'b' ? M.y + M.h - gb.y - gb.h : k === 'cv' ? P.h / 2 - gb.cy : 0;
+      mv.forEach(it => moveBy(P, it, dx, dy));
+    } else mv.forEach(it => {
+      const r = itemBox(P, it);
+      const dx = k === 'l' ? gb.x - r.x : k === 'r' ? gb.x + gb.w - r.x - r.w : k === 'ch' ? gb.cx - r.cx : 0;
+      const dy = k === 't' ? gb.y - r.y : k === 'b' ? gb.y + gb.h - r.y - r.h : k === 'cv' ? gb.cy - r.cy : 0;
+      moveBy(P, it, dx, dy);
+    });
+    after();
+  });
+  $$('[data-dist]', box).forEach(b => b.onclick = () => {
+    const h = b.dataset.dist === 'h', bs = mv.map(it => ({ it, b: itemBox(P, it) })).sort((a, z) => h ? a.b.cx - z.b.cx : a.b.cy - z.b.cy);
+    const gb = groupBox(P, mv), used = bs.reduce((a, o) => a + (h ? o.b.w : o.b.h), 0), gap = ((h ? gb.w : gb.h) - used) / (bs.length - 1);
+    let at = h ? gb.x : gb.y;
+    bs.forEach(o => { moveBy(P, o.it, h ? at - o.b.x : 0, h ? 0 : at - o.b.y); at += (h ? o.b.w : o.b.h) + gap; });
+    after();
+  });
+  $$('[data-frame]', box).forEach(b => b.onclick = () => { each(fr, t => { if (b.dataset.frame) t.frame = b.dataset.frame; else delete t.frame; }); planVersion++; after(); });
+  const target = k => k === 'color' ? tx : k === 'hcolor' ? hi : fl;
+  $$('[data-col]', box).forEach(b => b.onclick = () => { each(target(b.dataset.col), t => { t[b.dataset.col] = b.dataset.v; }); after(); });
+  $$('[data-colin]', box).forEach(el => { el.oninput = () => { each(target(el.dataset.colin), t => { t[el.dataset.colin] = el.value; }); drawSingle(false); }; el.onchange = after; });
+  $$('[data-colclear]', box).forEach(b => b.onclick = () => { each(target(b.dataset.colclear), t => { delete t[b.dataset.colclear]; }); after(); });
+  $('#tkStagGo', box)?.addEventListener('click', () => {
+    const st = parseFloat($('#tkStag', box).value) || 0, d0 = Math.min(...mv.map(it => T[it.id]?.delay || 0));
+    [...mv].sort((a, z) => { const A = itemBox(P, a), Z = itemBox(P, z); return Math.abs(A.cy - Z.cy) > 4 ? A.cy - Z.cy : A.cx - Z.cx; })
+      .forEach((it, j) => { tweakOf(P, it.id, true).delay = Math.round((d0 + st * j) * 100) / 100; }); after();
+  });
+  $('#tkHide', box).onclick = () => { each(list, t => { t.hidden = anyShown; }); after(); };
+  $('#tkReset', box).onclick = () => { list.forEach(it => { delete state.tweaks[P.key]?.[layoutOf(P)]?.[it.id]; }); after(); };
+  $('#tkClose', box).onclick = () => { selectOnly(null); renderTweakBar(); drawSingle(false); };
+  $('#tkTwins', box)?.addEventListener('click', () => { list.forEach(it => { const tw = twinsOf(L, it.id); if (tw.length) copyToTwins(P, it, tw); }); after(); });
+}
+// scale the selection by f, each element about the group's middle
+function scaleGroup(P, mv, f) {
+  if (mv.length === 1) { const tk = tweakOf(P, mv[0].id, true); tk.s = clamp((tk.s ?? 1) * f, .1, 6); return; }
+  const gb = groupBox(P, mv);
+  mv.forEach(it => { const b0 = itemBox(P, it), tk = tweakOf(P, it.id, true); tk.s = clamp((tk.s ?? 1) * f, .1, 6); const b = itemBox(P, it); moveBy(P, it, gb.cx + (b0.cx - gb.cx) * f - b.cx, gb.cy + (b0.cy - gb.cy) * f - b.cy); });
+}
 document.addEventListener('keydown', e => {
-  if (!selId || state.view !== 'single' || /input|textarea|select/i.test(e.target.tagName)) return;
-  const P = presetOf(state.size), step = e.shiftKey ? 10 : 1, it = currentItems().items.find(i => i.id === selId);
-  const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-  if (e.key === 'Escape') selId = null;
-  else if (!it || it.fixed) return;
-  else if (mv) moveBy(P, it, mv[0], mv[1]);
-  else if (e.key === '+' || e.key === '=') tweakOf(P, selId, true).s *= 1.05;
-  else if (e.key === '-' || e.key === '_') tweakOf(P, selId, true).s /= 1.05;
+  if (state.view !== 'single' || /input|textarea|select/i.test(e.target.tagName)) return;
+  const P = presetOf(state.size);
+  // Cmd/Ctrl+A: everything on the slide that can move
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+    e.preventDefault(); startEditing();
+    const { items } = currentItems(); selIds = items.filter(i => !i.fixed).map(i => i.id); selId = selIds[selIds.length - 1] || null;
+    renderSlideBar(); renderTweakBar(); drawSingle(false); return;
+  }
+  if (!selId) return;
+  const mv = movers(selItems()), step = e.shiftKey ? 10 : 1;
+  const arrow = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+  if (e.key === 'Escape') selectOnly(null);
+  else if (!mv.length) return;
+  else if (arrow) mv.forEach(it => moveBy(P, it, arrow[0], arrow[1]));
+  else if (e.key === '+' || e.key === '=') scaleGroup(P, mv, 1.05);
+  else if (e.key === '-' || e.key === '_') scaleGroup(P, mv, 1 / 1.05);
   else return;
   e.preventDefault(); save(); renderTweakBar(); drawSingle(false);
 });

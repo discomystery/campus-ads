@@ -15,7 +15,7 @@
 'use strict';
 const D = window.DBS;
 if (!D) return;
-if (D.build !== '20261023170240') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
+if (D.build !== '20261023171512') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
 const { clamp, EASE, prog, font, wrap, fitStack, stackAt, search, minText, msgOf, MC, enter, popBack, ASC, blockH } = D;
 const S = () => D.state();
 const now = () => D.now();
