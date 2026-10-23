@@ -13,10 +13,8 @@
 <header class="topbar">
   <div class="brand">
     <span class="brand-mark" aria-hidden="true">★</span>
-    <div>
-      <h1>Down-Ballot Studio</h1>
-      <p class="sub">Election Day judicial race ads · every Meta + Google size</p>
-    </div>
+    <h1>Down-Ballot Studio</h1>
+    <span class="sub">Election Day judicial ads</span>
   </div>
   <div class="view-toggle" role="tablist">
     <button class="seg active" data-view="single">Editor</button>
@@ -27,29 +25,46 @@
 <main class="app">
   <!-- Sizes -->
   <aside class="panel left">
-    <div class="list-head"><b>Sizes</b> <span class="hint">✓ = include in batch export</span></div>
-    <ul id="sizeList" class="size-list"></ul>
-    <div id="customBox" class="custom-box">
-      <b>Custom size</b>
-      <div class="row2">
-        <label>Width (px)<input id="customW" type="number" min="50" max="4000" step="1"></label>
-        <label>Height (px)<input id="customH" type="number" min="50" max="4000" step="1"></label>
+    <div class="ptabs" role="tablist">
+      <button class="ptab active" data-ltab="sizes">Sizes</button>
+      <button class="ptab" data-ltab="layers">Layers</button>
+    </div>
+    <div class="lbody" data-lbody="sizes">
+      <p class="hint">Tick a size to include it in batch export.</p>
+      <ul id="sizeList" class="size-list"></ul>
+      <div id="customBox" class="custom-box">
+        <b>Custom size</b>
+        <div class="row2">
+          <label>Width (px)<input id="customW" type="number" min="50" max="4000" step="1"></label>
+          <label>Height (px)<input id="customH" type="number" min="50" max="4000" step="1"></label>
+        </div>
       </div>
+    </div>
+    <div class="lbody" data-lbody="layers" hidden>
+      <div id="layerList" class="layer-list"></div>
     </div>
   </aside>
 
   <!-- Stage -->
   <section class="stage" id="stageSingle">
-    <div class="canvas-wrap" id="canvasWrap"><canvas id="ad"></canvas></div>
-    <div class="transport">
-      <button id="playBtn" class="icon-btn" title="Play / pause (space)">❚❚</button>
-      <input id="scrub" type="range" min="0" max="1000" value="0">
-      <span id="timeRead" class="mono">0.0s</span>
+    <div class="stage-bar">
+      <span id="sizeInfo" class="size-info"></span>
+      <label class="inline">Design <select id="layoutPick"></select></label>
+      <label class="inline">Message <select id="msgPick"></select></label>
+      <span class="spacer"></span>
+      <label class="tog" title="Snap to edges, centers and other elements while dragging (hold Alt to skip)"><input type="checkbox" data-bind="snap"> Snap</label>
+      <label class="tog" title="Stories: shade the areas Instagram covers"><input type="checkbox" data-bind="guides"> Safe zone</label>
     </div>
-    <div class="size-info"><span id="sizeInfo"></span> · <label class="inline">Design <select id="layoutPick"></select></label> · <label class="inline">Message <select id="msgPick"></select></label></div>
-    <div class="slide-bar" id="slideBar" hidden></div>
-    <div class="tweak-bar" id="tweakBar"></div>
+    <div class="canvas-wrap" id="canvasWrap"><canvas id="ad"></canvas></div>
     <div class="warn" id="warnings"></div>
+    <div class="timeline">
+      <div class="transport">
+        <button id="playBtn" class="icon-btn" title="Play / pause (space)">❚❚</button>
+        <input id="scrub" type="range" min="0" max="1000" value="0">
+        <span id="timeRead" class="mono">0.0s</span>
+      </div>
+      <div class="slide-strip" id="slideBar" hidden></div>
+    </div>
   </section>
 
   <section class="stage grid-stage" id="stageGrid" hidden>
@@ -60,6 +75,8 @@
 
   <!-- Controls -->
   <aside class="panel right">
+    <div id="inspector" class="inspector" hidden></div>
+    <div id="settings">
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="cands">Candidates</button>
       <button class="tab" data-tab="message">Message</button>
@@ -85,17 +102,8 @@
       <button id="addMsg" class="ghost">+ Add a message</button>
       <div class="bx-head"><b>Which message each size uses</b><span class="bx-links"><button id="msgSpread">Spread them out</button><button id="msgAllA">All use A</button></span></div>
       <div id="msgSizes" class="msg-sizes"></div>
-      <h3>Stripes layout</h3>
-      <div class="row2">
-        <label>Header tag<input type="text" data-bind="text.stripeTag"></label>
-        <label>Footer label<input type="text" data-bind="text.dayLabel"></label>
-      </div>
-      <label>Footer date <span class="hint">(the button text goes under it)</span><input type="text" data-bind="text.date"></label>
-      <label>Marker note <span class="hint">(handwritten note in the Scrapbook suite)</span><input type="text" data-bind="text.note"></label>
+      <label>Marker note <span class="hint">(handwritten note in the Scrapbook design)</span><input type="text" data-bind="text.note"></label>
       <h3>Every size</h3>
-      <label>Sticker <span class="hint">(starburst on tall feed sizes, if turned on in Style)</span>
-        <input type="text" data-bind="text.sticker">
-      </label>
       <label>Disclaimer
         <input type="text" data-bind="text.disclaimer">
       </label>
@@ -136,10 +144,10 @@
         <label class="check pulse"><input type="checkbox" data-bind="pulse"> Button pulses</label>
       </div>
       <div class="row2">
-        <label>Length (seconds; Spotlight runs as long as its slides need)<input type="number" min="5" max="15" step="0.5" data-bind="duration"></label>
+        <label>Length (seconds)<input type="number" min="5" max="15" step="0.5" data-bind="duration"></label>
         <label>Ending<select data-bind="outro"><option value="hold">Hold the finished ad</option><option value="fade">Fade out (loops cleanly)</option></select></label>
       </div>
-      <p class="hint">The intro takes about 4–5 seconds, then the finished ad holds. Shorter lengths speed the intro up. Google GIFs replay to fill 30 seconds, the most Google allows.</p>
+      <p class="hint">Front Row and Scrapbook build in about 3–4 seconds, then hold. Spotlight runs as long as its slides need: set each slide’s length in the strip under the ad. Google GIFs replay to fill 30 seconds, the most Google allows.</p>
       <h3>Colors</h3>
       <div class="color-row">
         <label>Yellow<input type="color" data-bind="colors.yellow"></label>
@@ -148,7 +156,6 @@
         <label>Text<input type="color" data-bind="colors.black"></label>
       </div>
       <button id="resetColors" class="ghost sm">Reset colors</button>
-      <label class="check"><input type="checkbox" data-bind="guides"> Show Stories safe zone (editor only)</label>
 
       <h3>Font</h3>
       <p class="hint">In Adobe Fonts, add <b>Obviously Variable</b> to a web project, add this site's domain (and <code>localhost</code> for local use), then paste the project ID or the embed code here.</p>
@@ -203,6 +210,7 @@
         <label class="ghost file-btn">Load settings file<input type="file" id="loadSettings" accept="application/json" hidden></label>
         <button id="resetAll" class="ghost danger">Reset everything</button>
       </div>
+    </div>
     </div>
   </aside>
 </main>

@@ -79,7 +79,7 @@ function freshState() {
     custom: { w: 600, h: 500 },
     colors: { ...DEFAULT_COLORS },
     theme: 'classic', themeAuto: false,
-    pattern: 'none', sticker: false, guides: true,
+    pattern: 'none', sticker: false, guides: true, snap: true, ltab: 'sizes',
     slideTimes: {}, // seconds per slide: slideTimes[design][slide]
     tweaks: {}, // your manual moves and resizes: tweaks[size][layout][element] = { dx, dy, s }
     duration: 8, outro: 'hold', motion: 'pop', pulse: true,
@@ -798,10 +798,10 @@ function render(ctx, P, k, editor, t = Infinity, slide = null) {
   } finally { NOW = Infinity; DC = MC; CUR_EDITOR = false; }
   if (editor && P.safe && state.guides) {
     const s = P.safe;
-    ctx.fillStyle = 'rgba(255,40,40,.16)';
+    ctx.fillStyle = 'rgba(8,8,14,.38)';
     ctx.fillRect(0, 0, P.w, P.h * s.t); ctx.fillRect(0, P.h * (1 - s.b), P.w, P.h * s.b);
     ctx.fillRect(0, P.h * s.t, P.w * s.l, P.h * (1 - s.t - s.b)); ctx.fillRect(P.w * (1 - s.r), P.h * s.t, P.w * s.r, P.h * (1 - s.t - s.b));
-    ctx.strokeStyle = 'rgba(255,40,40,.9)'; ctx.lineWidth = 3; ctx.setLineDash([14, 10]);
+    ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 3; ctx.setLineDash([14, 10]);
     ctx.strokeRect(P.w * s.l, P.h * s.t, P.w * (1 - s.l - s.r), P.h * (1 - s.t - s.b)); ctx.setLineDash([]);
   }
 }
@@ -815,10 +815,10 @@ function redraw() {
   drawQueued = true;
   requestAnimationFrame(() => { drawQueued = false; state.view === 'grid' ? drawGrid() : drawSingle(true); });
 }
-let shownKey = '';
+let shownKey = '', lastShown = -1;
 function drawSingle(full) {
   const P = presetOf(state.size), wrapEl = $('#canvasWrap'), c = $('#ad');
-  const aw = wrapEl.clientWidth - 8, ah = wrapEl.clientHeight - 8;
+  const aw = wrapEl.clientWidth - 40, ah = wrapEl.clientHeight - 40;
   const k = Math.max(.05, Math.min(aw / P.w, ah / P.h, 3)), dpr = window.devicePixelRatio || 1;
   const key = `${P.w}x${P.h}@${k}`;
   if (full || key !== shownKey) {
@@ -830,10 +830,15 @@ function drawSingle(full) {
   render(c.getContext('2d'), P, k * dpr, true, playT, frozen() ? editSlide : null);
   drawSelection(c.getContext('2d'), P, k * dpr);
   $('#scrub').value = Math.round(playT / durOf(P) * 1000);
+  // while it plays, the slide strip and the layers list follow the slide on screen
+  const ss = shownSlide();
+  if (ss !== lastShown) { lastShown = ss; markPlaying(); renderLayers(); }
   $('#timeRead').textContent = `${playT.toFixed(1)}s`;
   if (!full) return;
   renderSlideBar();
-  $('#sizeInfo').innerHTML = `<b>${esc(P.name)}</b> · ${P.w}×${P.h}px · shown at ${Math.round(k * 100)}%${P.note ? ` · ${esc(P.note)}` : ''}`;
+  $('#sizeInfo').innerHTML = `<b>${esc(P.name)}</b> <span class="mono">${P.w}×${P.h} · ${Math.round(k * 100)}%</span>`;
+  $('#sizeInfo').title = P.note || '';
+  $('[data-bind="guides"]').closest('label').hidden = !P.safe;
   const warn = [];
   if (state.sizes[P.key]?.endorser && !state.endorser.photo) warn.push('No endorser photo yet: add one on the Endorser tab.');
   if (usePhotos() && state.candidates.some(c => !c.photo)) warn.push('Some candidates have no photo yet.');
@@ -841,8 +846,8 @@ function drawSingle(full) {
   if (!state.sizes[P.key]?.disclaimer || !state.text.disclaimer.trim()) warn.push('No disclaimer on this size.');
   $('#warnings').textContent = warn.join(' ');
 }
-/* ---------- direct editing: slides, click, drag, resize, styles ---------- */
-let selId = null, hoverId = null, dragging = null, viewK = 1, editSlide = null;
+/* ---------- direct editing: slides, layers, click, drag, snapping, the inspector ---------- */
+let selId = null, hoverId = null, dragging = null, viewK = 1, editSlide = null, guides = [], dragNote = '';
 const curPlan = () => { const P = presetOf(state.size); return { P, L: plan(P, themeFor(P)) }; };
 // the slide on screen: the one being edited, or (while it plays) the one the animation is on
 function shownSlide() {
@@ -872,33 +877,116 @@ function onHandle(p) {
   const b = itemBox(P, it), hs = handleSize();
   return Math.abs(p.x - (b.x + b.w)) < hs && Math.abs(p.y - (b.y + b.h)) < hs;
 }
+// exact numbers: positions and sizes in ad pixels, whatever the element's parent (a card) does
+const parentScale = (P, it) => (it.parent && tweaksFor(P)[it.parent]?.s) || 1;
+const fontPx = (P, it) => it.fs ? it.fs * (tweaksFor(P)[it.id]?.s ?? 1) * parentScale(P, it) : null;
+function moveBy(P, it, ddx, ddy) {
+  const tk = tweakOf(P, it.id, true), ps = parentScale(P, it);
+  tk.dx = (tk.dx || 0) + ddx / (P.w * ps); tk.dy = (tk.dy || 0) + ddy / (P.h * ps);
+}
+// the design's margins (on Stories, the safe area)
+function marginBox(P) {
+  if (P.safe) return { x: P.w * P.safe.l, y: P.h * P.safe.t, w: P.w * (1 - P.safe.l - P.safe.r), h: P.h * (1 - P.safe.t - P.safe.b) };
+  const pad = Math.round(clamp(Math.min(P.w, P.h) * .055, 4, 60));
+  return { x: pad, y: pad, w: P.w - pad * 2, h: P.h - pad * 2 };
+}
+// the same element on the other slides: every judge slide is built alike (s1.name.1, s2.name.1, ...)
+const twinsOf = (L, id) => /^s\d+\./.test(id) ? L.items.filter(o => o.id && o.id !== id && /^s\d+\./.test(o.id) && o.id.replace(/^s\d+\./, '') === id.replace(/^s\d+\./, '')) : [];
+const slideLabel = (L, o) => o.slide === '*' ? 'every slide' : L.slides?.length > 1 ? `slide ${o.slide + 1}` : '';
+
+/* snapping: a dragged element's edges and center snap to the ad's edges, center and margins, to the
+   other elements on the slide, and to its twins on the other slides (so names line up slide to slide) */
+function snapMove(P, it, off) {
+  guides = [];
+  const b = itemBox(P, it);
+  dragNote = `X ${Math.round(b.x)}  Y ${Math.round(b.y)}`;
+  if (!state.snap || off) return;
+  const L = it._L, M = marginBox(P), k = shownSlide(), T = tweaksFor(P), thr = 6 / viewK;
+  const xs = [[0, 'edge'], [P.w / 2, 'center'], [P.w, 'edge'], [M.x, 'margin'], [M.x + M.w, 'margin']].map(([v, kind]) => ({ v, kind }));
+  const ys = [[0, 'edge'], [P.h / 2, 'center'], [P.h, 'edge'], [M.y, 'margin'], [M.y + M.h, 'margin']].map(([v, kind]) => ({ v, kind }));
+  const skip = new Set([it.id, it.parent].filter(Boolean));
+  L.items.forEach(o => { if (o.parent === it.id) skip.add(o.id); });
+  const twins = new Set(twinsOf(L, it.id).map(o => o.id));
+  L.items.forEach(o => {
+    if (!o.id || o.fixed || skip.has(o.id) || T[o.id]?.hidden) return;
+    const here = !L.slides?.length || o.slide === k || o.slide === '*';
+    if (!here && !twins.has(o.id)) return;
+    const ob = itemBox(P, o), kind = here ? 'item' : 'twin';
+    xs.push({ v: ob.x, kind, ob, o }, { v: ob.cx, kind, ob, o }, { v: ob.x + ob.w, kind, ob, o });
+    ys.push({ v: ob.y, kind, ob, o }, { v: ob.cy, kind, ob, o }, { v: ob.y + ob.h, kind, ob, o });
+  });
+  // twins win ties, so a judge's name prefers lining up with the same name on the other slides
+  const best = (edges, tg) => { let r = null; for (const e of edges) for (const t of tg) { const d = t.v - e, a = Math.abs(d) - (t.kind === 'twin' ? .01 : 0); if (Math.abs(d) < thr && (!r || a < r.a)) r = { d, a, t }; } return r; };
+  const bx = best([b.x, b.cx, b.x + b.w], xs), by = best([b.y, b.cy, b.y + b.h], ys);
+  if (!bx && !by) return;
+  moveBy(P, it, bx?.d || 0, by?.d || 0);
+  const nb = itemBox(P, it), notes = [];
+  const span = (t, lo, hi, full) => t.ob && t.kind === 'item' ? [Math.min(lo, t.ob[full ? 'y' : 'x']), Math.max(hi, t.ob[full ? 'y' : 'x'] + t.ob[full ? 'h' : 'w'])] : [0, full ? P.h : P.w];
+  if (bx) { const [a, z] = span(bx.t, nb.y, nb.y + nb.h, true); guides.push({ axis: 'x', v: bx.t.v, a, z, kind: bx.t.kind }); if (bx.t.kind === 'twin') notes.push(`lines up with ${bx.t.o.name} (${slideLabel(L, bx.t.o)})`); }
+  if (by) { const [a, z] = span(by.t, nb.x, nb.x + nb.w, false); guides.push({ axis: 'y', v: by.t.v, a, z, kind: by.t.kind }); if (by.t.kind === 'twin' && !notes.length) notes.push(`lines up with ${by.t.o.name} (${slideLabel(L, by.t.o)})`); }
+  dragNote = `X ${Math.round(nb.x)}  Y ${Math.round(nb.y)}${notes.length ? ' · ' + notes[0] : ''}`;
+}
+// resizing text snaps to the font sizes already used anywhere in the ad (any slide)
+function snapSize(P, it, off) {
+  guides = [];
+  const fs = fontPx(P, it);
+  if (!fs) { const b = itemBox(P, it); dragNote = `${Math.round(b.w)} × ${Math.round(b.h)}`; return; }
+  if (state.snap && !off) {
+    let best = null;
+    for (const o of it._L.items) {
+      if (!o.fs || o.id === it.id) continue;
+      const f = fontPx(P, o), d = Math.abs(f - fs) / f;
+      if (d < .035 && (!best || d < best.d)) best = { d, f, o };
+    }
+    if (best) { tweakOf(P, it.id, true).s *= best.f / fs; dragNote = `${Math.round(best.f)}px · same as ${best.o.name}${best.o.slide !== it.slide ? ` (${slideLabel(it._L, best.o)})` : ''}`; return; }
+  }
+  dragNote = `${Math.round(fs)}px`;
+}
+const SEL = '#ff2d95';
 function drawSelection(ctx, P, K) {
   const { items } = currentItems();
   ctx.setTransform(K, 0, 0, K, 0, 0);
   const lw = 1.6 / viewK, inset = it => { const b = itemBox(P, it); return it.fixed ? { x: b.x + lw * 2, y: b.y + lw * 2, w: b.w - lw * 4, h: b.h - lw * 4 } : b; };
   const hov = hoverId && hoverId !== selId && items.find(i => i.id === hoverId);
   if (hov) { const b = inset(hov); ctx.strokeStyle = 'rgba(255,45,149,.75)'; ctx.lineWidth = lw; ctx.setLineDash([5 / viewK, 4 / viewK]); ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]); }
+  // alignment guides while dragging
+  for (const g of guides) {
+    ctx.strokeStyle = g.kind === 'twin' ? '#3ee0ff' : SEL; ctx.lineWidth = lw;
+    ctx.setLineDash(g.kind === 'margin' || g.kind === 'twin' ? [6 / viewK, 4 / viewK] : []);
+    ctx.beginPath();
+    if (g.axis === 'x') { ctx.moveTo(g.v, g.a); ctx.lineTo(g.v, g.z); } else { ctx.moveTo(g.a, g.v); ctx.lineTo(g.z, g.v); }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
   const sel = selId && items.find(i => i.id === selId);
   if (sel) {
     const b = inset(sel), hs = handleSize();
-    ctx.strokeStyle = '#ff2d95'; ctx.lineWidth = lw * 1.4; ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = SEL; ctx.lineWidth = lw * 1.4; ctx.strokeRect(b.x, b.y, b.w, b.h);
     if (!sel.fixed) { ctx.fillStyle = '#fff'; ctx.fillRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs); ctx.strokeRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs); }
+    // a readout under the box while dragging: position, size, or the font size it matched
+    if (dragging && dragNote) {
+      const fsz = 11.5 / viewK; ctx.font = `600 ${fsz}px system-ui, sans-serif`;
+      const tw = ctx.measureText(dragNote).width, pw = tw + fsz * 1.2, ph = fsz * 1.8;
+      let x = clamp(b.x + b.w / 2 - pw / 2, 2 / viewK, P.w - pw - 2 / viewK), y = b.y + b.h + fsz * .8;
+      if (y + ph > P.h) y = b.y - ph - fsz * .6;
+      ctx.fillStyle = SEL; ctx.beginPath(); ctx.roundRect(x, y, pw, ph, ph / 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(dragNote, x + fsz * .6, y + ph / 2); ctx.textBaseline = 'alphabetic';
+    }
   }
 }
 const ad = $('#ad');
+const startEditing = () => { if (!frozen()) editSlide = shownSlide(); setPlaying(false); };
 ad.addEventListener('pointerdown', e => {
   const p = adPoint(e);
   // editing freezes the slide that was on screen, fully built
-  if (!frozen()) editSlide = shownSlide();
-  setPlaying(false);
+  startEditing();
   const { P, items } = currentItems();
   if (onHandle(p)) {
     const it = items.find(i => i.id === selId), b = itemBox(P, it), tk = tweakOf(P, selId) || NO_TWEAK;
-    dragging = { mode: 'size', cx: b.cx, cy: b.cy, d0: Math.max(4, Math.hypot(p.x - b.cx, p.y - b.cy)), s0: tk.s ?? 1 };
+    dragging = { mode: 'size', it, cx: b.cx, cy: b.cy, d0: Math.max(4, Math.hypot(p.x - b.cx, p.y - b.cy)), s0: tk.s ?? 1 };
   } else {
     selId = hit(p);
     const it = selId && items.find(i => i.id === selId);
-    if (it && !it.fixed) { const tk = tweakOf(P, selId) || NO_TWEAK; dragging = { mode: 'move', x0: p.x, y0: p.y, dx0: tk.dx || 0, dy0: tk.dy || 0 }; }
+    if (it && !it.fixed) { const tk = tweakOf(P, selId) || NO_TWEAK; dragging = { mode: 'move', it, x0: p.x, y0: p.y, dx0: tk.dx || 0, dy0: tk.dy || 0, moved: false }; }
   }
   if (dragging) ad.setPointerCapture(e.pointerId);
   renderSlideBar(); renderTweakBar(); drawSingle(false);
@@ -906,94 +994,224 @@ ad.addEventListener('pointerdown', e => {
 ad.addEventListener('pointermove', e => {
   const p = adPoint(e), P = presetOf(state.size);
   if (dragging) {
-    const tk = tweakOf(P, selId, true);
-    if (dragging.mode === 'move') { tk.dx = dragging.dx0 + (p.x - dragging.x0) / P.w; tk.dy = dragging.dy0 + (p.y - dragging.y0) / P.h; }
-    else tk.s = clamp(dragging.s0 * Math.hypot(p.x - dragging.cx, p.y - dragging.cy) / dragging.d0, .2, 4);
+    const tk = tweakOf(P, selId, true), it = dragging.it, ps = parentScale(P, it);
+    if (dragging.mode === 'move') {
+      if (!dragging.moved && Math.hypot(p.x - dragging.x0, p.y - dragging.y0) < 3 / viewK) return; // a click, not a drag
+      dragging.moved = true;
+      tk.dx = dragging.dx0 + (p.x - dragging.x0) / (P.w * ps); tk.dy = dragging.dy0 + (p.y - dragging.y0) / (P.h * ps);
+      snapMove(P, it, e.altKey);
+    } else {
+      tk.s = clamp(dragging.s0 * Math.hypot(p.x - dragging.cx, p.y - dragging.cy) / dragging.d0, .1, 6);
+      snapSize(P, it, e.altKey);
+    }
     renderTweakBar(true); drawSingle(false); return;
   }
   const h = onHandle(p) ? selId : hit(p), it = h && currentItems().items.find(i => i.id === h);
   ad.style.cursor = onHandle(p) ? 'nwse-resize' : it ? (it.fixed ? 'pointer' : 'move') : 'default';
-  if (h !== hoverId) { hoverId = h; drawSingle(false); }
+  if (h !== hoverId) { hoverId = h; drawSingle(false); markLayer(); }
 });
-const endDrag = () => { if (dragging) { dragging = null; save(); renderTweakBar(); } };
+const endDrag = () => { if (dragging) { const moved = dragging.mode === 'size' || dragging.moved; dragging = null; guides = []; dragNote = ''; if (moved) save(); renderTweakBar(); renderSlideBar(); drawSingle(false); } };
 ad.addEventListener('pointerup', endDrag);
 ad.addEventListener('pointercancel', endDrag);
-ad.addEventListener('pointerleave', () => { if (!dragging && hoverId) { hoverId = null; drawSingle(false); } });
+ad.addEventListener('pointerleave', () => { if (!dragging && hoverId) { hoverId = null; drawSingle(false); markLayer(); } });
 
-// slide chips: pick a slide to freeze it for editing
+/* the slide strip under the ad: a thumbnail per slide (click to edit it) and how long each stays up */
 function renderSlideBar() {
   const { P, L } = curPlan(), bar = $('#slideBar');
   if (!L.slides || L.slides.length < 2) { bar.hidden = true; bar.innerHTML = ''; return; }
   bar.hidden = false;
   const k = frozen() ? clamp(editSlide, 0, L.slides.length - 1) : -1, lens = slideLens(L), lay = layoutOf(P), n = L.slides.length;
-  const mine = state.slideTimes[lay] || {}, custom = Object.keys(mine).length > 0, dur = durOf(P);
-  const chips = L.slides.map((s, j) => `<button class="chip${j === k ? ' active' : ''}" data-slide="${j}">${j + 1} · ${esc(s.name)} <i>${lens[j].toFixed(1)}s</i></button>`).join('');
-  const total = `Runs ${dur.toFixed(1)}s${dur > L.total + .05 ? ` (the end card holds to fill the ${state.duration}s Length setting)` : state.duration < L.total - .05 ? ` (longer than the ${state.duration}s Length setting, to fit every slide)` : ''}`;
-  const row = k < 0
-    ? `<span class="hint">Pick a slide to change how long it stays up. ${total}.</span>`
-    : `<span class="tk-ctl"><span class="tk-lab">Slide ${k + 1} length</span><input type="range" id="slLen" min=".5" max="6" step=".1" value="${lens[k].toFixed(1)}"><output id="slLenOut">${lens[k].toFixed(1)}s</output></span>`
-      + (k > 0 && k < n - 1 && n > 3 ? `<button id="slAll" class="ghost sm">Use for slides 2–${n - 1}</button>` : '')
-      + (custom ? '<button id="slReset" class="ghost sm">Reset timing</button>' : '')
-      + `<span class="hint">${total} · Timing applies to every size in this design.</span>`;
-  bar.innerHTML = `<div class="tk-row"><span class="hint">Slides</span>${chips}</div><div class="tk-row">${row}</div>`;
-  $$('#slideBar [data-slide]').forEach(b => b.onclick = () => { editSlide = +b.dataset.slide; selId = null; setPlaying(false); renderSlideBar(); renderTweakBar(); drawSingle(false); });
-  const setLen = (js, v) => { const t = (state.slideTimes[lay] ||= {}); js.forEach(j => { t[j] = Math.round(v * 10) / 10; }); planVersion++; };
-  const el = $('#slLen');
-  if (el) {
-    el.oninput = () => { setLen([k], +el.value); $('#slLenOut').textContent = `${(+el.value).toFixed(1)}s`; $$('#slideBar [data-slide] i')[k].textContent = `${(+el.value).toFixed(1)}s`; drawSingle(false); };
+  const custom = Object.keys(state.slideTimes[lay] || {}).length > 0, dur = durOf(P);
+  const th = 52, tw = Math.min(110, th * P.w / P.h), thH = tw * P.h / P.w;
+  const cards = L.slides.map((s, j) => `<div class="slide-card${j === k ? ' active' : ''}" data-slide="${j}" title="Edit slide ${j + 1}">
+      <canvas width="${Math.round(tw * 2)}" height="${Math.round(thH * 2)}" style="width:${Math.round(tw)}px;height:${Math.round(thH)}px"></canvas>
+      <span class="sc-name">${j + 1}<b>${esc(s.name)}</b></span><span class="sc-len"><input type="number" data-len="${j}" min=".5" max="10" step=".1" value="${lens[j].toFixed(1)}" title="Seconds on screen">s</span>
+    </div>`).join('');
+  const note = dur > L.total + .05 ? `The end card holds to fill the ${state.duration}s Length setting.` : '';
+  bar.innerHTML = `<div class="strip-cards">${cards}</div>
+    <div class="strip-side"><span class="strip-total"><b>${dur.toFixed(1)}s</b> total</span>
+      ${k > 0 && k < n - 1 && n > 3 ? `<button id="slAll" class="ghost sm">Give slides 2–${n - 1} this length</button>` : ''}
+      ${custom ? '<button id="slReset" class="ghost sm">Reset timing</button>' : ''}
+      <span class="hint">${note} Timing applies to every size in this design.</span></div>`;
+  $$('#slideBar .slide-card').forEach((c, j) => {
+    const cv = $('canvas', c);
+    render(cv.getContext('2d'), P, cv.width / P.w, false, Infinity, j);
+    c.onclick = e => { if (e.target.closest('input')) return; editSlide = j; selId = null; setPlaying(false); renderSlideBar(); renderTweakBar(); drawSingle(false); };
+  });
+  const setLen = (js, v) => { const t = (state.slideTimes[lay] ||= {}); js.forEach(j => { t[j] = Math.round(clamp(v, .5, 10) * 10) / 10; }); planVersion++; };
+  $$('#slideBar [data-len]').forEach(el => {
+    el.oninput = () => { const v = +el.value; if (!(v >= .5 && v <= 10)) return; setLen([+el.dataset.len], v); $('.strip-total b', bar).textContent = `${durOf(P).toFixed(1)}s`; drawSingle(false); };
     el.onchange = () => { save(); renderSlideBar(); };
-  }
+  });
   $('#slAll')?.addEventListener('click', () => { setLen([...Array(n - 2)].map((_, j) => j + 1), lens[k]); save(); renderSlideBar(); drawSingle(false); });
   $('#slReset')?.addEventListener('click', () => { delete state.slideTimes[lay]; planVersion++; save(); renderSlideBar(); drawSingle(false); });
 }
-// the edit bar under the ad: what's selected and everything that can change on it
-const swatches = () => [state.colors.yellow, state.colors.blue, state.colors.white, state.colors.black];
-const colorCtl = (key, label, cur) => `<span class="tk-ctl"><span class="tk-lab">${label}</span>${swatches().map(c => `<button class="sw${cur && cur.toLowerCase() === c.toLowerCase() ? ' on' : ''}" data-col="${key}" data-v="${c}" style="background:${c}" title="${c}"></button>`).join('')}<input type="color" data-colin="${key}" value="${cur || '#ffffff'}" title="Any color">${cur ? `<button class="tk-x" data-colclear="${key}" title="Back to the design's color">↺</button>` : ''}</span>`;
-const fmtTk = (key, v) => key === 'delay' ? `${v > 0 ? '+' : ''}${(+v).toFixed(2)}s` : `${Math.round(v)}${key === 's' || key === 'width' ? '%' : ''}`;
-const rangeCtl = (key, label, min, max, step, val) => `<span class="tk-ctl"><span class="tk-lab">${label}</span><input type="range" data-tk="${key}" min="${min}" max="${max}" step="${step}" value="${val}"><output data-tkout="${key}">${fmtTk(key, val)}</output></span>`;
-function renderTweakBar(valuesOnly) {
-  const { P, L, items } = currentItems(), bar = $('#tweakBar');
-  if (selId && !items.some(i => i.id === selId)) selId = null;
-  const it = selId && items.find(i => i.id === selId), tk = selId ? tweakOf(P, selId) : null, any = Object.keys(tweaksFor(P)).length;
-  if (valuesOnly && it && $('[data-tk="s"]')) { const v = Math.round((tk?.s ?? 1) * 100); $('[data-tk="s"]').value = v; $('[data-tkout="s"]').textContent = `${v}%`; return; }
-  const multi = L.slides?.length > 1;
-  const pick = `<select id="tkPick"><option value="">${it ? 'Select another element…' : 'Select an element…'}</option>${items.map(i => `<option value="${esc(i.id)}"${i.id === selId ? ' selected' : ''}>${esc(i.name || i.id)}${tweaksFor(P)[i.id]?.hidden ? ' (hidden)' : ''}</option>`).join('')}</select>`;
-  const resetAll = any ? '<button id="tkResetAll" class="ghost sm">Reset all edits on this size</button>' : '';
-  if (!it) {
-    bar.innerHTML = `<div class="tk-row"><span class="hint">Click anything on the ad to edit it: every line of text, photo and shape is separate.${multi ? ' Pick a slide above to edit that slide.' : ''} Edits apply to this size and design only.</span></div><div class="tk-row">${pick}${resetAll}</div>`;
-  } else {
-    const d = roleDefaults(it.role), dh = roleDefaults('heavy'), ctl = [];
-    if (!it.fixed) ctl.push(rangeCtl('s', 'Size', 20, 300, 1, (tk?.s ?? 1) * 100, '%'));
-    if (it.textual && d) ctl.push(rangeCtl('weight', 'Weight', 100, 900, 10, tk?.weight ?? d.weight), rangeCtl('width', 'Width', 25, 200, 1, tk?.width ?? d.width, '%'));
-    if (!it.fixed) ctl.push(rangeCtl('delay', 'Delay', -1, 3, .05, tk?.delay ?? 0, 's'));
-    if (it.textual) ctl.push(colorCtl('color', 'Text', tk?.color));
-    if (it.hasHi) { ctl.push(colorCtl('hcolor', 'Highlight', tk?.hcolor)); if (dh) ctl.push(rangeCtl('hweight', 'Highlight weight', 100, 900, 10, tk?.hweight ?? dh.weight)); }
-    if (it.fillable) ctl.push(colorCtl('fill', it.textual ? 'Fill' : 'Color', tk?.fill));
-    ctl.push(`<label class="check tk-ctl"><input type="checkbox" id="tkHide"${tk?.hidden ? ' checked' : ''}> Hide</label>`);
-    bar.innerHTML = `<div class="tk-row"><b>${esc(it.name || it.id)}</b>${pick}<button id="tkReset" class="ghost sm">Reset this element</button>${resetAll}</div>
-      <div class="tk-row">${ctl.join('')}</div>
-      <div class="tk-row"><span class="hint">${it.fixed ? 'Backgrounds stay put; change their color here.' : 'Drag to move · drag the corner to resize · arrow keys nudge (Shift = 10px) · Esc deselects'}</span></div>`;
-  }
-  const edit = fn => { const t = tweakOf(P, selId, true); fn(t); };
-  $$('[data-tk]', bar).forEach(el => {
-    el.oninput = () => { const k = el.dataset.tk, v = +el.value; edit(t => { t[k] = k === 's' ? v / 100 : v; }); $(`[data-tkout="${k}"]`, bar).textContent = fmtTk(k, v); drawSingle(false); };
-    el.onchange = save;
+// while it plays, the strip follows along
+function markPlaying() {
+  const k = playing ? shownSlide() : -1;
+  $$('#slideBar .slide-card').forEach((c, j) => c.classList.toggle('playing', j === k));
+}
+
+/* the layers list (left panel): everything on the slide, top first; click to select, eye to hide */
+const ICONS = {
+  text: '<svg viewBox="0 0 16 16"><path d="M3 3h10M8 3v10" /></svg>',
+  pill: '<svg viewBox="0 0 16 16"><rect x="1.5" y="4.5" width="13" height="7" rx="3.5"/></svg>',
+  photo: '<svg viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.6"/><path d="M3 14c.6-3 2.6-4.4 5-4.4s4.4 1.4 5 4.4"/></svg>',
+  shape: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/></svg>',
+  bg: '<svg viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1.5"/><path d="M2 11l4-4 3 3 2-2 3 3"/></svg>',
+  eye: '<svg viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>',
+  eyeOff: '<svg viewBox="0 0 16 16"><path d="M2 2l12 12M6.3 4c.5-.2 1.1-.4 1.7-.4 4 0 6.5 4.4 6.5 4.4s-.7 1.3-2 2.5M10 11.9c-.6.4-1.3.6-2 .6-4 0-6.5-4.5-6.5-4.5s.8-1.4 2.2-2.6"/></svg>',
+};
+const kindOf = it => it.fixed ? 'bg' : it.textual ? (it.fillable ? 'pill' : 'text') : /photo|face|judge\d/.test(it.id) ? 'photo' : 'shape';
+function renderLayers() {
+  const box = $('#layerList'); if (!box) return;
+  const { P, L, items } = currentItems(), T = tweaksFor(P), k = shownSlide(), multi = L.slides?.length > 1, sname = multi ? L.slides[k].name : '';
+  const short = it => { const n = it.name || it.id; return sname && n.startsWith(sname + ' · ') ? n.slice(sname.length + 3) : n; };
+  const row = it => { const tk = T[it.id], edited = tk && Object.keys(tk).some(x => x === 'dx' || x === 'dy' ? Math.abs(tk[x]) > 1e-6 : x === 's' ? tk.s !== 1 : x !== 'hidden');
+    return `<div class="layer${it.id === selId ? ' sel' : ''}${tk?.hidden ? ' off' : ''}${it.parent ? ' child' : ''}" data-id="${esc(it.id)}"><span class="lk">${ICONS[kindOf(it)]}</span><span class="ln">${esc(short(it))}</span>${edited ? '<i class="dot" title="Edited"></i>' : ''}<button class="eye" data-eye="${esc(it.id)}" title="${tk?.hidden ? 'Show' : 'Hide'}">${tk?.hidden ? ICONS.eyeOff : ICONS.eye}</button></div>`; };
+  // top of the stack first, children right under their card
+  const order = list => { const top = list.filter(i => !i.parent).reverse(), out = []; top.forEach(t => { out.push(t); list.filter(c => c.parent === t.id).forEach(c => out.push(c)); }); list.filter(c => c.parent && !list.some(t => t.id === c.parent)).forEach(c => out.push(c)); return out; };
+  const here = items.filter(i => i.slide !== '*' || !multi), all = multi ? items.filter(i => i.slide === '*') : [];
+  const any = Object.keys(T).length;
+  box.innerHTML = `<div class="layers-head"><b>${multi ? `Slide ${k + 1} · ${esc(sname)}` : 'This ad'}</b>${multi && !frozen() ? '<span class="hint">Playing. Click a layer or a slide to edit.</span>' : ''}</div>
+    ${order(here).map(row).join('')}
+    ${all.length ? `<div class="layers-sub">On every slide</div>${order(all).map(row).join('')}` : ''}
+    ${any ? '<button id="tkResetAll" class="ghost sm">Reset all edits on this size</button>' : ''}
+    <p class="hint">Edits apply to this size in this design. Drag on the ad to move, drag the corner to resize, arrow keys nudge (Shift = 10px). Hold Alt while dragging to skip snapping.</p>`;
+  $$('.layer', box).forEach(r => {
+    r.onclick = e => { if (e.target.closest('[data-eye]')) return; startEditing(); selId = r.dataset.id; renderSlideBar(); renderTweakBar(); drawSingle(false); };
+    r.onmouseenter = () => { hoverId = r.dataset.id; drawSingle(false); };
+    r.onmouseleave = () => { hoverId = null; drawSingle(false); };
   });
-  $$('[data-col]', bar).forEach(b => b.onclick = () => { edit(t => { t[b.dataset.col] = b.dataset.v; }); save(); renderTweakBar(); drawSingle(false); });
-  $$('[data-colin]', bar).forEach(el => { el.oninput = () => { edit(t => { t[el.dataset.colin] = el.value; }); drawSingle(false); }; el.onchange = () => { save(); renderTweakBar(); }; });
-  $$('[data-colclear]', bar).forEach(b => b.onclick = () => { edit(t => { delete t[b.dataset.colclear]; }); save(); renderTweakBar(); drawSingle(false); });
-  $('#tkHide', bar)?.addEventListener('change', e => { edit(t => { t.hidden = e.target.checked; }); save(); renderTweakBar(); drawSingle(false); });
-  $('#tkPick', bar).onchange = e => { if (!frozen()) { editSlide = shownSlide(); setPlaying(false); renderSlideBar(); } selId = e.target.value || null; renderTweakBar(); drawSingle(false); };
-  $('#tkReset', bar)?.addEventListener('click', () => { delete state.tweaks[P.key]?.[layoutOf(P)]?.[selId]; save(); renderTweakBar(); drawSingle(false); });
-  $('#tkResetAll', bar)?.addEventListener('click', () => { if (confirm('Clear every edit on this size in this design?')) { if (state.tweaks[P.key]) delete state.tweaks[P.key][layoutOf(P)]; save(); renderTweakBar(); drawSingle(false); } });
+  $$('[data-eye]', box).forEach(b => b.onclick = () => { const t = tweakOf(P, b.dataset.eye, true); t.hidden = !t.hidden; save(); renderTweakBar(); drawSingle(false); });
+  $('#tkResetAll', box)?.addEventListener('click', () => { if (confirm('Clear every edit on this size in this design?')) { if (state.tweaks[P.key]) delete state.tweaks[P.key][layoutOf(P)]; save(); renderTweakBar(); renderSlideBar(); drawSingle(false); } });
+}
+const markLayer = () => $$('#layerList .layer').forEach(r => r.classList.toggle('hov', r.dataset.id === hoverId));
+
+/* the inspector (right panel, while something is selected): exact numbers for everything */
+const swatches = () => [state.colors.yellow, state.colors.blue, state.colors.white, state.colors.black];
+const colorCtl = (key, label, cur) => `<div class="ctl col"><span class="lab">${label}</span><span class="sws">${swatches().map(c => `<button class="sw${cur && cur.toLowerCase() === c.toLowerCase() ? ' on' : ''}" data-col="${key}" data-v="${c}" style="background:${c}" title="${c}"></button>`).join('')}<input type="color" data-colin="${key}" value="${cur || '#ffffff'}" title="Any color">${cur ? `<button class="tk-x" data-colclear="${key}" title="Back to the design's color">↺</button>` : ''}</span></div>`;
+const ALIGN = [
+  ['l', 'Align left (Shift: to the ad edge)', '<path d="M2 1v14"/><rect x="4" y="4" width="9" height="3"/><rect x="4" y="9" width="6" height="3"/>'],
+  ['ch', 'Center across the ad', '<path d="M8 1v14"/><rect x="2.5" y="4" width="11" height="3"/><rect x="4.5" y="9" width="7" height="3"/>'],
+  ['r', 'Align right (Shift: to the ad edge)', '<path d="M14 1v14"/><rect x="3" y="4" width="9" height="3"/><rect x="6" y="9" width="6" height="3"/>'],
+  ['t', 'Align top (Shift: to the ad edge)', '<path d="M1 2h14"/><rect x="4" y="4" width="3" height="9"/><rect x="9" y="4" width="3" height="6"/>'],
+  ['cv', 'Center down the ad', '<path d="M1 8h14"/><rect x="4" y="2.5" width="3" height="11"/><rect x="9" y="4.5" width="3" height="7"/>'],
+  ['b', 'Align bottom (Shift: to the ad edge)', '<path d="M1 14h14"/><rect x="4" y="3" width="3" height="9"/><rect x="9" y="6" width="3" height="6"/>'],
+];
+function inspectorValues(P, it) {
+  const tk = tweaksFor(P)[it.id] || {}, b = itemBox(P, it), d = roleDefaults(it.role), dh = roleDefaults('heavy');
+  return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h), s: Math.round((tk.s ?? 1) * 100),
+    fs: it.fs ? Math.round(fontPx(P, it) * 10) / 10 : '', weight: tk.weight ?? d?.weight ?? '', width: tk.width ?? d?.width ?? '',
+    hweight: tk.hweight ?? dh?.weight ?? '', delay: tk.delay ?? 0 };
+}
+// text keeps its aligned edge (and its top) when its size, weight or width changes, like a layout app
+const anchorX = (it, b) => it.align === 'right' ? b.x + b.w : it.align === 'center' ? b.cx : b.x;
+function keepAnchor(P, it, b, fn) {
+  fn();
+  if (!it.textual || !it.align) return;
+  const nb = itemBox(P, it);
+  moveBy(P, it, anchorX(it, b) - anchorX(it, nb), b.y - nb.y);
+}
+function setValue(P, it, key, v) {
+  const tk = tweakOf(P, it.id, true), b = itemBox(P, it);
+  if (key === 'x') moveBy(P, it, v - b.x, 0);
+  else if (key === 'y') moveBy(P, it, 0, v - b.y);
+  else if (key === 'w') { if (v > 0 && b.w > 0) keepAnchor(P, it, b, () => { tk.s = (tk.s ?? 1) * v / b.w; }); }
+  else if (key === 's') keepAnchor(P, it, b, () => { tk.s = v / 100; });
+  else if (key === 'fs') { if (v > 0) keepAnchor(P, it, b, () => { tk.s = v / (it.fs * parentScale(P, it)); }); }
+  else if (key === 'weight' || key === 'width' || key === 'hweight') keepAnchor(P, it, b, () => { tk[key] = v; });
+  else tk[key] = v;
+}
+// copy an element's edits to its twins on the other slides: same font size in px, and lined up
+// on the same edge (text) or moved the same way (photos, shapes)
+function copyToTwins(P, it, twins) {
+  const src = tweaksFor(P)[it.id], all = state.tweaks[P.key]?.[layoutOf(P)];
+  if (!src) { twins.forEach(o => { if (all) delete all[o.id]; }); return; }
+  const sb = itemBox(P, it), sf = fontPx(P, it);
+  twins.forEach(o => {
+    all[o.id] = JSON.parse(JSON.stringify(src));
+    if (!it.textual || !o.fs || !sf) return;
+    const t = all[o.id]; t.dx = 0; t.dy = 0;
+    t.s = sf / (o.fs * parentScale(P, o));
+    const ob = itemBox(P, o);
+    moveBy(P, o, anchorX(it, sb) - anchorX(o, ob), sb.y - ob.y);
+  });
+}
+function syncInspector(P, it, except) {
+  const v = inspectorValues(P, it), box = $('#inspector');
+  $$('[data-num]', box).forEach(el => { if (el !== except && el !== document.activeElement) el.value = v[el.dataset.num]; });
+  $$('[data-sl]', box).forEach(el => { if (el !== except) el.value = v[el.dataset.sl]; });
+}
+function renderTweakBar(valuesOnly) {
+  const { P, L, items } = currentItems(), box = $('#inspector');
+  if (selId && !items.some(i => i.id === selId)) selId = null;
+  const it = selId && items.find(i => i.id === selId);
+  if (valuesOnly && it && box.dataset.id === it.id && !box.hidden) { syncInspector(P, it); return; }
+  renderLayers();
+  $('#settings').hidden = !!it; box.hidden = !it;
+  if (!it) { box.innerHTML = ''; box.dataset.id = ''; return; }
+  box.dataset.id = it.id;
+  const tk = tweakOf(P, it.id) || {}, v = inspectorValues(P, it), d = roleDefaults(it.role), dh = roleDefaults('heavy'), twins = twinsOf(L, it.id);
+  const where = slideLabel(L, it);
+  const num = (key, label, o = {}) => `<label class="num"><span>${label}</span><input type="number" data-num="${key}" value="${v[key]}" step="${o.step ?? 1}"${o.min != null ? ` min="${o.min}"` : ''}${o.max != null ? ` max="${o.max}"` : ''}${o.ro ? ' readonly tabindex="-1"' : ''}>${o.unit ? `<i>${o.unit}</i>` : ''}</label>`;
+  const slider = (key, min, max, step) => `<input type="range" class="sl" data-sl="${key}" min="${min}" max="${max}" step="${step}" value="${v[key]}">`;
+  const sec = (title, body) => `<section><h4>${title}</h4>${body}</section>`;
+  const parts = [`<div class="insp-head"><div><small>${esc(where ? where[0].toUpperCase() + where.slice(1) : 'Element')}</small><b>${esc(it.name || it.id)}</b></div><button id="tkClose" class="x" title="Done (Esc)">✕</button></div>`];
+  if (!it.fixed) parts.push(sec('Position and size', `<div class="grid2">${num('x', 'X', { unit: 'px' })}${num('y', 'Y', { unit: 'px' })}${num('w', 'W', { min: 1, unit: 'px' })}${num('h', 'H', { ro: true, unit: 'px' })}</div>
+    <div class="ctl">${num('s', 'Scale', { min: 10, max: 600, unit: '%' })}${slider('s', 10, 300, 1)}</div>
+    <div class="align-row">${ALIGN.map(([k, t, svg]) => `<button data-align="${k}" title="${t}"><svg viewBox="0 0 16 16">${svg}</svg></button>`).join('')}</div>`));
+  if (it.textual && d) {
+    const sizes = L.items.filter(o => o.fs && o.id !== it.id).map(o => ({ o, f: Math.round(fontPx(P, o)) }));
+    parts.push(sec('Text', `<div class="ctl">${num('fs', 'Font size', { min: 2, max: 900, step: .5, unit: 'px' })}${slider('fs', 4, Math.max(200, Math.ceil(v.fs * 2)), .5)}</div>
+      <select id="tkMatch"><option value="">Match the font size of…</option>${sizes.map(({ o, f }) => `<option value="${esc(o.id)}">${f}px · ${esc(o.name)}${o.slide !== it.slide ? ` (${slideLabel(L, o)})` : ''}</option>`).join('')}</select>
+      <div class="ctl">${num('weight', 'Weight', { min: 100, max: 900, step: 10 })}${slider('weight', 100, 900, 10)}</div>
+      <div class="ctl">${num('width', 'Width', { min: 25, max: 200, unit: '%' })}${slider('width', 25, 200, 1)}</div>
+      ${colorCtl('color', 'Color', tk.color)}
+      ${it.hasHi ? colorCtl('hcolor', 'Highlight', tk.hcolor) + (dh ? `<div class="ctl">${num('hweight', 'Highlight weight', { min: 100, max: 900, step: 10 })}${slider('hweight', 100, 900, 10)}</div>` : '') : ''}`));
+  }
+  if (it.fillable) parts.push(sec(it.textual ? 'Fill' : 'Color', colorCtl('fill', it.textual ? 'Fill' : 'Color', tk.fill)));
+  if (!it.fixed) parts.push(sec('Timing', `<div class="ctl">${num('delay', 'Delay', { min: -1, max: 3, step: .05, unit: 's' })}${slider('delay', -1, 3, .05)}</div><p class="hint">Comes in this much later (or earlier) than the design has it.</p>`));
+  parts.push(`<section class="insp-actions">
+    ${twins.length ? `<button id="tkTwins" class="ghost">Copy these edits to the ${twins.length} other slide${twins.length > 1 ? 's' : ''}</button>` : ''}
+    <div class="btn-row"><button id="tkHide" class="ghost">${tk.hidden ? 'Show' : 'Hide'}</button><button id="tkReset" class="ghost">Reset this element</button></div>
+    <p class="hint">${it.fixed ? 'Backgrounds stay put; change their color here.' : 'Arrow keys nudge (Shift = 10px). Esc or ✕ goes back to the settings.'}</p></section>`);
+  box.innerHTML = parts.join('');
+  const edit = fn => { fn(tweakOf(P, it.id, true)); };
+  const after = () => { save(); renderTweakBar(); renderSlideBar(); drawSingle(false); };
+  $$('[data-num]', box).forEach(el => {
+    el.oninput = () => { const x = parseFloat(el.value); if (!Number.isFinite(x) || el.readOnly) return; setValue(P, it, el.dataset.num, x); syncInspector(P, it, el); drawSingle(false); };
+    el.onchange = () => { save(); syncInspector(P, it); renderLayers(); renderSlideBar(); };
+    el.onkeydown = e => { if (e.key === 'Enter') el.blur(); };
+  });
+  $$('[data-sl]', box).forEach(el => {
+    el.oninput = () => { setValue(P, it, el.dataset.sl, +el.value); syncInspector(P, it, el); drawSingle(false); };
+    el.onchange = () => { save(); renderLayers(); renderSlideBar(); };
+  });
+  $$('[data-align]', box).forEach(b => b.onclick = e => {
+    const r = itemBox(P, it), M = e.shiftKey ? { x: 0, y: 0, w: P.w, h: P.h } : marginBox(P), k = b.dataset.align;
+    const dx = k === 'l' ? M.x - r.x : k === 'r' ? M.x + M.w - r.x - r.w : k === 'ch' ? P.w / 2 - r.cx : 0;
+    const dy = k === 't' ? M.y - r.y : k === 'b' ? M.y + M.h - r.y - r.h : k === 'cv' ? P.h / 2 - r.cy : 0;
+    moveBy(P, it, dx, dy); after();
+  });
+  $('#tkMatch', box)?.addEventListener('change', e => { const o = L.byId.get(e.target.value); if (o) { setValue(P, it, 'fs', fontPx(P, o)); after(); } });
+  $$('[data-col]', box).forEach(b => b.onclick = () => { edit(t => { t[b.dataset.col] = b.dataset.v; }); after(); });
+  $$('[data-colin]', box).forEach(el => { el.oninput = () => { edit(t => { t[el.dataset.colin] = el.value; }); drawSingle(false); }; el.onchange = after; });
+  $$('[data-colclear]', box).forEach(b => b.onclick = () => { edit(t => { delete t[b.dataset.colclear]; }); after(); });
+  $('#tkHide', box).onclick = () => { edit(t => { t.hidden = !t.hidden; }); after(); };
+  $('#tkReset', box).onclick = () => { delete state.tweaks[P.key]?.[layoutOf(P)]?.[it.id]; after(); };
+  $('#tkClose', box).onclick = () => { selId = null; renderTweakBar(); drawSingle(false); };
+  $('#tkTwins', box)?.addEventListener('click', () => {
+    copyToTwins(P, it, twins); after();
+  });
 }
 document.addEventListener('keydown', e => {
   if (!selId || state.view !== 'single' || /input|textarea|select/i.test(e.target.tagName)) return;
   const P = presetOf(state.size), step = e.shiftKey ? 10 : 1, it = currentItems().items.find(i => i.id === selId);
   const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
   if (e.key === 'Escape') selId = null;
-  else if (it?.fixed) return;
-  else if (mv) { const tk = tweakOf(P, selId, true); tk.dx += mv[0] / P.w; tk.dy += mv[1] / P.h; }
+  else if (!it || it.fixed) return;
+  else if (mv) moveBy(P, it, mv[0], mv[1]);
   else if (e.key === '+' || e.key === '=') tweakOf(P, selId, true).s *= 1.05;
   else if (e.key === '-' || e.key === '_') tweakOf(P, selId, true).s /= 1.05;
   else return;
@@ -1009,7 +1227,7 @@ function tick(ts) {
   }
   requestAnimationFrame(tick);
 }
-function setPlaying(v) { playing = v; if (v) editSlide = null; $('#playBtn').textContent = v ? '❚❚' : '▶'; renderSlideBar(); }
+function setPlaying(v) { playing = v; if (v) editSlide = null; $('#playBtn').textContent = v ? '❚❚' : '▶'; renderSlideBar(); markPlaying(); renderLayers(); }
 $('#playBtn').onclick = () => { if (!playing && playT >= durOf(presetOf(state.size)) - .05) playT = 0; setPlaying(!playing); };
 $('#scrub').oninput = e => { setPlaying(false); editSlide = null; renderSlideBar(); playT = +e.target.value / 1000 * durOf(presetOf(state.size)); drawSingle(false); };
 document.addEventListener('keydown', e => {
@@ -1214,6 +1432,12 @@ function renderThemes() {
 $('#resetColors').onclick = () => { state.colors = { ...DEFAULT_COLORS }; save(); bindAll(); renderThemes(); redraw(); };
 
 $$('.seg[data-view]').forEach(b => b.onclick = () => { setView(b.dataset.view); save(); });
+$$('.ptab').forEach(b => b.onclick = () => {
+  state.ltab = b.dataset.ltab;
+  $$('.ptab').forEach(x => x.classList.toggle('active', x === b));
+  $$('.lbody').forEach(x => { x.hidden = x.dataset.lbody !== b.dataset.ltab; });
+  save();
+});
 $$('.tab').forEach(b => b.onclick = () => {
   state.tab = b.dataset.tab;
   $$('.tab').forEach(x => x.classList.toggle('active', x === b));
@@ -1518,6 +1742,7 @@ function initUI() {
   $('#customW').value = state.custom.w; $('#customH').value = state.custom.h;
   $('#kitInput').value = state.font.kit;
   $$('.tab').find(t => t.dataset.tab === state.tab)?.click();
+  $$('.ptab').find(t => t.dataset.ltab === state.ltab)?.click();
   setView(state.view); loadPhoto(); loadCandPhotos(); fontStatus(); loadKit();
 }
 window.addEventListener('resize', redraw);

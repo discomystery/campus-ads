@@ -66,10 +66,10 @@ function newPlan(P) {
     P, items, slides,
     slide(s) { slides.push(s); return slides.length - 1; },
     /* an element: id (unique in the plan), slide (index, or '*' for every slide), name (shown in the editor),
-       x/y/w/h (its box), t0 (when it starts animating), draw(t0); textual/hasHi/fillable say which edits apply */
+       x/y/w/h (its box), fs (text: font size in px), t0 (when it starts animating), draw(t0); textual/hasHi/fillable say which edits apply */
     add(o) {
       items.push({ id: o.id, slide: o.slide ?? 0, name: o.name, role: o.role, textual: !!o.textual, hasHi: !!o.hasHi, fillable: !!o.fillable,
-        fixed: !!o.fixed, top: !!o.top, parent: o.parent, x: o.x, y: o.y, w: o.w, t0: o.t0, measure: o.measure, b: { h: o.h, draw: (_, t) => o.draw(t) } });
+        fixed: !!o.fixed, top: !!o.top, parent: o.parent, fs: o.fs, align: o.align, x: o.x, y: o.y, w: o.w, t0: o.t0, measure: o.measure, b: { h: o.h, draw: (_, t) => o.draw(t) } });
     },
     done(extra) { return { fam: 'suite', bg: '#000', bands: [], items, slides, sticker: null, m: 1, end: 3, ...extra }; },
   };
@@ -149,7 +149,7 @@ function textEl(pl, o) {
     g.restore();
   };
   pl.add({ id: o.id, slide: o.slide, name: o.name, role: ln.role, textual: true, hasHi: !!ln.hi && ln.words.some(w => w.segs.some(s => s.hi)),
-    parent: o.parent, top: o.top, x: o.x, y: o.y, w: o.w, h, t0: o.t0, draw,
+    parent: o.parent, top: o.top, fs: ln.size, align: o.align || 'left', x: o.x, y: o.y, w: o.w, h, t0: o.t0, draw,
     measure: tk => { const L = layLine(MC, ln, tk || {}, o.x, o.w, o.align); return { x: L.x0, w: L.lw }; } });
 }
 // a fitted stack (from fitStack/stackAt) becomes one element per line; a pill in it (the tag) becomes a pill element
@@ -214,7 +214,7 @@ function pillEl(pl, o) {
     });
     g.restore();
   };
-  pl.add({ id: o.id, slide: o.slide, name: o.name, role: o.role, textual: true, fillable: true, parent: o.parent, top: o.top,
+  pl.add({ id: o.id, slide: o.slide, name: o.name, role: o.role, textual: true, fillable: true, parent: o.parent, top: o.top, fs: o.size, align: 'center',
     x: z.px, y: o.y, w: z.pw, h: z.ph, t0: o.t0, draw, measure: tk => { const Z = size(MC, tk || {}); return { x: Z.px, w: Z.pw }; } });
 }
 
