@@ -196,3 +196,21 @@ label.check.pulse { margin-top: 26px; }
 .grid-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .grid-head label.inline { display: flex; align-items: center; gap: 6px; margin: 0; }
 .grid-head select { width: auto; }
+
+/* slides and the edit bar */
+.slide-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; max-width: 760px; }
+.slide-bar .chip { margin: 0; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: #dfe4ff; font-size: 12px; font-weight: 700; cursor: pointer; }
+.slide-bar .chip:hover { border-color: #ff2d95; }
+.slide-bar .chip.active { background: #ff2d95; border-color: #ff2d95; color: #fff; }
+.tweak-bar { flex-direction: column; align-items: stretch; gap: 6px; max-width: 820px; width: 100%; }
+.tk-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 14px; }
+.tk-row select { width: auto; max-width: 260px; padding: 4px 6px; font-size: 12px; }
+.tk-ctl { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.tk-ctl input[type=range] { width: 110px; accent-color: #ff2d95; }
+.tk-ctl input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; }
+.tk-ctl output { font-family: ui-monospace, Menlo, monospace; min-width: 34px; }
+.tk-lab { font-weight: 700; }
+.sw { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer; padding: 0; }
+.sw.on { border-color: #ff2d95; box-shadow: 0 0 0 2px rgba(255,45,149,.4); }
+.tk-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; }
+label.check.tk-ctl { margin: 0; color: var(--text); }

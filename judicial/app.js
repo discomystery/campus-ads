@@ -51,9 +51,9 @@ const DEFAULT_MESSAGES = [
   msg('Every vote counts', '*Statewide* court races here have been decided by *just a few hundred votes*. Make one of them *yours*.', 'Make *your vote* count.', 'Vote by 7:30\u00a0PM tonight'),
 ];
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-// the "Mix" pattern: alternate lineup with stripes, using quadrants where the ad is roughly square
-const squarish = p => p.h / p.w >= .75 && p.h / p.w <= 1.35;
-const mixLayout = (p, i) => i % 2 ? (squarish(p) ? 'quads' : 'stripes') : 'lineup';
+// the "Mix" pattern: the three designs in turn down the list of sizes
+const DESIGNS = ['spotlight', 'frontrow', 'scrapbook'];
+const mixLayout = (p, i) => DESIGNS[i % DESIGNS.length];
 function freshState() {
   const sizes = {};
   // spread the messages across the sizes so neighbors differ
@@ -80,7 +80,6 @@ function freshState() {
     colors: { ...DEFAULT_COLORS },
     theme: 'classic', themeAuto: false,
     pattern: 'none', sticker: false, guides: true,
-    quadsTried: true,
     tweaks: {}, // your manual moves and resizes: tweaks[size][layout][element] = { dx, dy, s }
     duration: 8, outro: 'hold', motion: 'pop', pulse: true,
     frame: 'circle', endFrame: 'circle',
@@ -112,8 +111,8 @@ try {
     // the single message from before alternate messages existed becomes message A
     if (!saved.messages && saved.text?.headline) saved.messages = [{ ...DEFAULT_MESSAGES[0], ...saved.text }, ...DEFAULT_MESSAGES.slice(1)];
     state = merge(freshState(), saved);
-    if (!saved.quadsTried) { PRESETS.forEach(p => { if (squarish(p) && state.sizes[p.key]?.layout === 'stripes') state.sizes[p.key].layout = 'quads'; }); }
-    state.quadsTried = true;
+    // sizes still on a retired layout (Lineup, Stripes, Quadrants) move to the designs
+    PRESETS.forEach((p, i) => { if (!DESIGNS.includes(state.sizes[p.key]?.layout)) state.sizes[p.key].layout = mixLayout(p, i); });
     // the first draft of message E made a vaguer claim
     state.messages.forEach(m => { if (m.headline.startsWith('Court races are won by *a few thousand votes*')) Object.assign(m, DEFAULT_MESSAGES[4]); });
   }
@@ -164,6 +163,17 @@ function font(role, size) {
   return `${weight} ${nearestStretch(width)} ${px} ${fam}, ${FALLBACK}`;
 }
 const ROLES = Object.keys(ROLE);
+// a role's font with an element's edits: weight (or hweight for highlighted words) and width
+function fontOv(role, size, ov, hi) {
+  if (role === 'marker' || !ov) return font(role, size);
+  const wo = hi ? ov.hweight : ov.weight;
+  if (wo == null && ov.width == null) return font(role, size);
+  const f = state.font, [wt, wd] = ROLE[role] || ROLE.body;
+  const weight = wo ?? (typeof wt === 'number' ? wt : f[wt]), width = ov.width ?? (+f[wd] || 100);
+  const fam = varSrc ? `"${aliasFor(width)}", "${f.family}"` : `"${f.family}"`;
+  return `${weight} ${nearestStretch(width)} ${Math.max(1, size).toFixed(2)}px ${fam}, ${FALLBACK}`;
+}
+const roleDefaults = role => { if (!ROLE[role]) return null; const [wt, wd] = ROLE[role]; return { weight: typeof wt === 'number' ? wt : +state.font[wt], width: +state.font[wd] || 100 }; };
 const kitFamilies = () => [...new Set([...document.fonts].map(f => f.family.replace(/["']/g, '')))].filter(f => f !== 'Archivo' && !f.startsWith('dbv-'));
 // find the family's @font-face src in the project's CSS (fetched, or pasted in by hand)
 async function findVariableSource() {
@@ -661,171 +671,11 @@ function discBlock(x, w, size, ink, align) {
 }
 
 /* ---------- layout ---------- */
-function family(P, r) {
-  if (P.h <= 120 || r.h / r.w < .2) return 'strip';
-  if (r.h / r.w < .42) return 'cols';
-  return r.h / r.w < .75 ? 'wide' : 'tall';
-}
-// stack rows down a column, spreading spare height evenly between them
-function spread(rows, y0, h, gap) {
-  rows = rows.filter(Boolean);
-  const slack = h - rows.reduce((a, b) => a + b.h, 0) - gap * (rows.length - 1), extra = Math.max(0, slack) / (rows.length + 1);
-  let y = y0 + extra;
-  return rows.map(r => { const at = y; y += r.h + gap + extra; return at; });
-}
-/* ---------- stripes layout ---------- */
-/* The alternative look from the earlier campaign pieces: a header, one colored
-   band per judge (name on one side, photo on the other, alternating sides),
-   and a white footer with the date and poll hours. On wide sizes the bands
-   turn into columns. Returns null when a size is too small for it, and the
-   size falls back to the lineup. */
-const LAYOUTS = { lineup: 'Lineup (judges in a row)', stripes: 'Stripes (a band per judge)', quads: 'Quadrants (2×2 grid)' };
-const layoutOf = P => P.layout ?? state.sizes[P.key]?.layout ?? 'lineup';
-const lum = hex => { const [r, g, b] = rgb(hex).map(v => v / 255); return .2126 * r + .7152 * g + .0722 * b; };
-const inkOn = c => lum(c) > .45 ? state.colors.black : state.colors.white;
-const STRIPE_STEP = .3;
-
-function stripeHeader(x, w, h, A, B, P, align) {
-  const t = msgOf(P), m = Math.min(P.w, P.h);
-  const make = head => fitStack(MC, [
-    { text: state.text.stripeTag.toUpperCase(), role: 'heavy', r: .42, color: B, maxLines: 2, lh: 1, gap: 0, optional: true, min: minText(P) },
-    { text: head, role: 'heavy', r: 1, lh: 1, color: inkOn(A), hi: B, gap: .22 },
-  ], w, h, Math.min(w * .13, 110));
-  const long = t.headline.trim() ? make(t.headline) : null, short = t.short.trim() ? make(t.short) : null;
-  const res = long && (!short || long.s >= Math.max(18, m * .06)) ? long : short || long;
-  if (!res || res.out.find(o => o.it.role === 'heavy' && o.it.r === 1).size < minText(P)) return null;
-  return { h: res.total, bx: x, bw: w, dur: stackDur(res), draw: (y, t0) => drawStack(DC, res, x, y, align, t0) };
-}
-// the four name stacks share one size; office lines go first, then titles, until it's readable
-function fitNames(w, h, colors, P, align) {
-  const C = state.candidates, minP = minText(P);
-  const items = (c, color, pre, off) => [
-    // like the earlier campaign pieces: a big bold "Judge Christine" sitting tight on the last name
-    pre && c.showPrefix && c.prefix.trim() && { text: c.prefix, role: 'condBold', r: .72, lh: 1, color, maxLines: 2, gap: 0 },
-    { text: c.last, role: 'last', r: 1, lh: 1, color, maxLines: 1, gap: .04 },
-    off && c.showOffice && { text: c.office || c.short, role: 'cond', r: .46, lh: 1.05, color, maxLines: 2, gap: .2 },
-  ].filter(Boolean);
-  for (const [pre, off] of [[true, true], [true, false], [false, false]]) {
-    const sets = C.map((c, i) => items(c, colors[i], pre, off));
-    // the smallest line in use sets the lowest size worth trying
-    const rs = [pre && C.some(c => c.showPrefix) && .72, off && C.some(c => c.showOffice) && .46].filter(Boolean);
-    const lo = minP / Math.min(1, ...rs);
-    const s = search(s => sets.every(it => stackAt(MC, it, w, h, s)) ? s : null, lo, Math.min(h, w * .3, 120));
-    if (s) return sets.map(it => { const res = stackAt(MC, it, w, h, s); return { h: res.total, dur: stackDur(res), res, align }; });
-  }
-  return null;
-}
-function stripesPlan(P, T) {
-  const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {}, M = msgOf(P), C = state.candidates;
-  const A = T.disc, B = T.band, white = state.colors.white, black = state.colors.black, blue = state.colors.blue;
-  const pad = Math.round(clamp(m * .06, 5, 56)), items = [], bands = [];
-  const put = (b, y, t0, id, x = b?.bx, w = b?.bw) => b && items.push({ b, y, t0, id, x, w });
-  const at = (b, x) => b && { ...b, draw: (y, t0) => drawStack(DC, b.res, x, y, b.align, t0) };
-  const S = P.safe ? { t: H * P.safe.t, b: H * (1 - P.safe.b), l: W * P.safe.l, r: W * (1 - P.safe.r) } : { t: pad * .5, b: H - pad * .5, l: pad, r: W - pad };
-  const discOn = cfg.disclaimer && state.text.disclaimer.trim(), endOn = cfg.endorser && state.endorser.name.trim();
-  const footItems = (big) => [
-    big && { text: state.text.dayLabel.toUpperCase(), role: 'heavy', r: .42, color: blue, maxLines: 1, lh: 1, gap: 0, optional: true, min: minText(P) },
-    { text: state.text.date, role: 'heavy', r: 1, color: black, maxLines: 2, lh: 1, gap: .15 },
-    { text: M.cta, role: 'heavy', r: .42, color: blue, maxLines: 2, lh: 1.1, gap: .2 }, // the poll hours always stay
-  ];
-  let t = .25;
-  const photoBlock = (i, x, d, rowBottom, disc) => ({ h: d * POP, draw: (y, t0) => {
-    const ctx = DC, rise = state.motion === 'fade' ? 1 : prog(t0 + .1, .6);
-    enter(ctx, prog(t0, .45), x + d / 2, y + d * POP - d / 2, [0, d * .4], popBack, () => drawCutout(ctx, i, x, y, d, disc, inkOn(disc), rise));
-  } });
-
-  if (layoutOf(P) === 'quads' && H / W >= .45) {
-    // quadrants: header, a 2x2 checkerboard of judges (names toward the outside, photos toward the middle), footer
-    const span = S.b - S.t, hh = span * .2, fh = span * .19, ch = (span - hh - fh) / 2, x0 = S.l, cw = S.r - S.l, qw = W / 2;
-    const ew = endOn && cw >= 260 ? cw * .28 : 0;
-    const hdr = stripeHeader(x0, cw - ew - (ew ? pad * .5 : 0), hh - pad * .3, A, B, P, ew ? 'left' : 'center');
-    // name on the outer ~58% of each cell, photo tucked against the inner edge
-    const cellColor = i => ((i % 2) + (i >> 1)) % 2 ? B : A, tw = qw * .58 - pad;
-    const names = fitNames(tw, ch * .8, C.map((_, i) => inkOn(cellColor(i))), P, 'center');
-    if (!hdr || !names) return null;
-    bands.push({ x: 0, y: 0, w: W, h: S.t + hh + 1, color: A, from: 'top', t0: 0 });
-    put(hdr, S.t + (hh - hdr.h) / 2, t, 'header'); t += hdr.dur * .6;
-    if (ew) { const e = endBlock(S.r - ew, ew, hh * .92, { ...T, disc: B }, inkOn(A), 'stack', P); if (e) put(e, S.t + (hh - e.h) / 2, t + .2, 'endorser'); }
-    C.forEach((c, i) => {
-      const col = i % 2, row = i >> 1, x = col * qw, y = S.t + hh + row * ch, color = cellColor(i), t0 = .35 + i * STRIPE_STEP;
-      bands.push({ x, y, w: qw + (col ? 0 : 1), h: ch + (row ? 0 : 1), color, from: col ? 'right' : 'left', t0 });
-      const nb = names[i], nx = col ? x + qw * .42 : x + pad;
-      put(at(nb, nx), y + (ch - nb.h) / 2, t0 + .25, `name${i}`, nx, tw);
-      if (usePhotos()) {
-        const d = Math.min(ch * .88, qw * .36), px = col ? x + qw * .4 - d : x + qw * .6;
-        const top = y + ch - d * POP - (state.frame === 'none' ? 0 : ch * .04);
-        put(photoBlock(i, px, d, y + ch, color === A ? B : A), top, t0 + .3, `photo${i}`, px, d);
-      }
-      t = t0 + .9;
-    });
-    const fy = S.t + hh + 2 * ch, disc = discOn ? discBlock(x0, cw, clamp(H * .018, 10.5, 22), black, 'center') : null;
-    bands.push({ x: 0, y: fy, w: W, h: H - fy, color: white, from: 'bottom', t0: t - .4 });
-    const fres = fitStack(MC, footItems(true), cw, fh - (disc ? disc.h + pad * .3 : 0) - pad * .4, Math.min(cw * .14, 120));
-    if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, x0, y, 'center', t0) }, fy + pad * .3 + (fh - (disc ? disc.h + pad * .3 : 0) - pad * .3 - fres.total) / 2, t - .2, 'footer', x0, cw);
-    if (disc) put(disc, Math.min(H - pad * .5, S.b) - disc.h, .3, 'disclaimer');
-    return { fam: 'stripes', bg: white, bands, items, sticker: null, m, end: t + (fres ? stackDur(fres) : 0) };
-  }
-  if (H / W >= .45) {
-    // rows: header, four judge bands, footer
-    const span = S.b - S.t, hh = span * .2, fh = span * .19, rh = (span - hh - fh) / 4, x0 = S.l, cw = S.r - S.l;
-    const ew = endOn && cw >= 260 ? cw * .28 : 0;
-    const hdr = stripeHeader(x0, cw - ew - (ew ? pad * .5 : 0), hh - pad * .3, A, B, P, ew ? 'left' : 'center');
-    const half = cw * .5, names = fitNames(half - pad * .4, rh * .78, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'center');
-    if (!hdr || !names) return null;
-    bands.push({ x: 0, y: 0, w: W, h: S.t + hh + 1, color: A, from: 'top', t0: 0 });
-    put(hdr, S.t + (hh - hdr.h) / 2, t, 'header'); t += hdr.dur * .6;
-    if (ew) { const e = endBlock(S.r - ew, ew, hh * .92, { ...T, disc: B }, inkOn(A), 'stack', P); if (e) put(e, S.t + (hh - e.h) / 2, t + .2, 'endorser'); }
-    C.forEach((c, i) => {
-      const y = S.t + hh + i * rh, color = i % 2 ? B : A, textRight = i % 2 === 0, t0 = .35 + i * STRIPE_STEP;
-      bands.push({ x: 0, y: i === 3 ? y : y, w: W, h: rh + (i === 3 ? 0 : 1), color, from: textRight ? 'right' : 'left', t0 });
-      const nx = textRight ? x0 + half + pad * .2 : x0 + pad * .2, nb = names[i];
-      put(at(nb, nx), y + (rh - nb.h) / 2, t0 + .25, `name${i}`, nx, half - pad * .4);
-      if (usePhotos()) {
-        const d = Math.min(rh * .9, half * .8), px = (textRight ? x0 : x0 + half) + (half - d) / 2;
-        const top = y + rh - d * POP - (state.frame === 'none' ? 0 : rh * .04);
-        put(photoBlock(i, px, d, y + rh, textRight ? B : A), top, t0 + .3, `photo${i}`, px, d);
-      }
-      t = t0 + .9;
-    });
-    // footer
-    const fy = S.t + hh + 4 * rh, disc = discOn ? discBlock(x0, cw, clamp(H * .018, 10.5, 22), black, 'center') : null;
-    bands.push({ x: 0, y: fy, w: W, h: H - fy, color: white, from: 'bottom', t0: t - .4 });
-    const fres = fitStack(MC, footItems(true), cw, fh - (disc ? disc.h + pad * .3 : 0) - pad * .4, Math.min(cw * .14, 120));
-    if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, x0, y, 'center', t0) }, fy + pad * .3 + (fh - (disc ? disc.h + pad * .3 : 0) - pad * .3 - fres.total) / 2, t - .2, 'footer', x0, cw);
-    if (disc) put(disc, Math.min(H - pad * .5, S.b) - disc.h, .3, 'disclaimer');
-    return { fam: 'stripes', bg: white, bands, items, sticker: null, m, end: t + (fres ? stackDur(fres) : 0) };
-  }
-  // columns: header, four judge columns, footer
-  const strip = H <= 120, showHdr = W >= 500;
-  const hw = showHdr ? W * (strip ? .22 : .24) : 0, fw = W * (strip ? .2 : .19), jw = (W - hw - fw) / 4;
-  const vpad = Math.max(4, pad * .6), inner = H - vpad * 2;
-  const hdr = showHdr ? stripeHeader(pad * .7, hw - pad * 1.2, inner, A, B, P, 'left') : null;
-  const photoD = usePhotos() && !strip ? Math.min(jw * .8, H * .5) : 0;
-  const names = fitNames(jw - pad * .5, photoD ? inner - photoD * POP - vpad : inner, C.map((_, i) => inkOn(i % 2 ? B : A)), P, 'center');
-  if ((showHdr && !hdr) || !names) return null;
-  if (hw) bands.push({ x: 0, y: 0, w: hw + 1, h: H, color: A, from: 'top', t0: 0 });
-  if (hdr) { put(hdr, vpad + (inner - hdr.h) / 2, t, 'header'); t += hdr.dur * .6; }
-  C.forEach((c, i) => {
-    const x = hw + i * jw, color = i % 2 ? B : A, t0 = .35 + i * STRIPE_STEP, nb = names[i];
-    bands.push({ x, y: 0, w: jw + 1, h: H, color, from: i % 2 ? 'bottom' : 'top', t0 });
-    const blockH = nb.h + (photoD ? photoD * POP + vpad * .5 : 0), y0 = photoD ? vpad : vpad + (inner - nb.h) / 2;
-    put(at(nb, x + pad * .25), y0, t0 + .25, `name${i}`, x + pad * .25, jw - pad * .5);
-    if (photoD) put(photoBlock(i, x + (jw - photoD) / 2, photoD, H, i % 2 ? A : B), H - photoD * POP - (state.frame === 'none' ? 0 : vpad * .5), t0 + .3, `photo${i}`, x + (jw - photoD) / 2, photoD);
-    t = t0 + .9;
-  });
-  const fx = W - fw, disc = discOn ? discBlock(fx + pad * .3, fw - pad * .6, clamp(H * (strip ? .13 : .05), 7, 14), black, 'center') : null;
-  bands.push({ x: fx, y: 0, w: fw, h: H, color: white, from: 'right', t0: t - .4 });
-  const fres = fitStack(MC, footItems(!strip), fw - pad * .6, inner - (disc ? disc.h + vpad * .3 : 0), Math.min(fw * .2, 90));
-  if (fres) put({ h: fres.total, draw: (y, t0) => drawStack(DC, fres, fx + pad * .3, y, 'center', t0) }, vpad + (inner - (disc ? disc.h + vpad * .3 : 0) - fres.total) / 2, t - .2, 'footer', fx + pad * .3, fw - pad * .6);
-  if (disc) put(disc, H - vpad - disc.h, .3, 'disclaimer');
-  return { fam: 'stripes', bg: white, bands, items, sticker: null, m, end: t + (fres ? stackDur(fres) : 0) };
-}
-
-/* Works out where every block goes and when it animates in. Returns the
-   band (the colored strip the judges stand in), the blocks with their
-   positions and start times, and when the intro ends. Plans are cached:
-   fitting text is the slow part, and video export draws the same plan
-   hundreds of times. */
+// the designs live in suites.js and register themselves here
+const LAYOUTS = {};
+const layoutOf = P => P.layout ?? state.sizes[P.key]?.layout ?? 'spotlight';
+/* Works out where every element goes and when it animates in. Plans are cached:
+   fitting text is the slow part, and video export draws the same plan hundreds of times. */
 const planCache = new Map();
 let planVersion = 0;
 function plan(P, T) {
@@ -833,122 +683,20 @@ function plan(P, T) {
   if (planCache.has(key)) return planCache.get(key);
   if (planCache.size > 60) planCache.clear();
   const L = makePlan(P, T);
+  L.byId = new Map(L.items.filter(it => it.id).map(it => [it.id, it]));
+  L.items.forEach(it => { it._L = L; });
   planCache.set(key, L);
   return L;
 }
 function makePlan(P, T) {
-  const suite = SUITES[layoutOf(P)];
-  if (suite) { const S = suite(P, T); if (S) return S; }
-  if (layoutOf(P) === 'stripes' || layoutOf(P) === 'quads') { const S = stripesPlan(P, T); if (S) return S; }
-  const W = P.w, H = P.h, m = Math.min(W, H), cfg = state.sizes[P.key] || {};
-  const pad = Math.round(clamp(m * .06, 5, 64));
-  const r = P.safe ? { x: W * P.safe.l, y: H * P.safe.t, w: W * (1 - P.safe.l - P.safe.r), h: H * (1 - P.safe.t - P.safe.b) }
-    : { x: pad, y: pad, w: W - pad * 2, h: H - pad * 2 };
-  const fam = family(P, r), items = [], put = (b, y, t0, id, x = b?.bx, w = b?.bw) => b && items.push({ b, y, t0, id, x, w });
-  const endOn = !!cfg.endorser && state.endorser.name.trim(), discOn = cfg.disclaimer && state.text.disclaimer.trim();
-  let band = null, sticker = null, t = .35; // the band sweeps in first, then everything follows in order
-
-  if (fam === 'tall' || fam === 'wide') {
-    const gap = Math.round(m * (fam === 'tall' ? .04 : .035));
-    const disc = discOn ? discBlock(r.x, r.w, clamp(H * .02, 10.5, 24), T.bandInk, 'center') : null;
-    const avail = r.h - (disc ? disc.h + gap * .6 : 0);
-    let hdr, endTop = null;
-    if (fam === 'tall') {
-      let hw = r.w;
-      if (state.sticker && state.text.sticker.trim() && r.w >= 560) { const d = Math.min(avail * .2, r.w * .26); sticker = { d }; hw = r.w - d - gap; }
-      hdr = headerBlock(r.x, hw, avail * (endOn ? .27 : .32), T, sticker ? 'left' : 'center', P, false);
-    } else {
-      const sw = endOn ? r.w * .3 : 0;
-      hdr = headerBlock(r.x, r.w - sw - (sw ? gap : 0), avail * .36, T, 'left', P, false);
-      if (endOn) endTop = endBlock(r.x + r.w - sw, sw, avail * .3, T, T.ink, 'row', P);
-    }
-    const cta = ctaBlock(r.x, r.w, clamp(avail * .1, 30, 130), T.cta, T.ctaInk, 'center', P);
-    const endRow = fam === 'tall' && endOn ? endBlock(r.x, r.w, avail * .14, T, T.bandInk, r.w < 420 ? 'stack' : 'row', P) : null;
-    const topH = Math.max(hdr?.h || 0, endTop?.h || 0);
-    const top = endTop ? { h: topH } : hdr;
-    const used = [top, cta, endRow].filter(Boolean);
-    const lu = lineupBlock(r.x, r.w, avail - used.reduce((a, b) => a + b.h, 0) - gap * used.length - avail * .04, T, T.bandInk, P);
-    const rows = [top, lu, endRow, cta].filter(Boolean), ys = spread(rows, r.y, avail, gap), yOf = b => ys[rows.indexOf(b)];
-    if (hdr) { put(hdr, endTop ? yOf(top) + (topH - hdr.h) / 2 : yOf(hdr), t, 'header'); t += hdr.dur; }
-    if (sticker && hdr) { sticker = { ...sticker, cx: r.x + r.w - sticker.d / 2, cy: yOf(top) + topH / 2, t0: t - .2 }; }
-    if (lu) { put(lu, yOf(lu), t - .25, 'lineup'); t += lu.dur - .25; }
-    if (endTop) { put(endTop, yOf(top) + (topH - endTop.h) / 2, t - .3, 'endorser'); t += endTop.dur - .3; }
-    if (endRow) { put(endRow, yOf(endRow), t - .3, 'endorser'); t += endRow.dur - .3; }
-    if (cta) { put(cta, yOf(cta), t - .2, 'cta'); t += cta.dur - .2; }
-    if (lu) { const ly = yOf(lu) + lu.bandTop; band = { x: 0, y: ly, w: W, h: H - ly, from: 'bottom' }; }
-    else if (cta) { const cy = yOf(cta) - gap; band = { x: 0, y: cy, w: W, h: H - cy, from: 'bottom' }; }
-    if (disc) put(disc, r.y + r.h - disc.h, .3, 'disclaimer');
-  } else {
-    // side by side: headline (and button) on the left, judges in the band on the right
-    const gap = Math.round(fam === 'strip' ? Math.max(5, r.h * .16) : m * .07);
-    const leftW = r.w * (fam === 'strip' ? .3 : endOn ? .33 : .38);
-    const ctaCol = fam === 'strip' && r.w >= 560 && msgOf(P).cta.trim() ? r.w * .2 : 0;
-    const endW = fam === 'cols' && endOn ? r.w * .15 : 0;
-    const discH = discOn ? clamp(H * (fam === 'strip' ? .15 : .06), 7, 16) : 0;
-    const lh = r.h - (discH ? discH + gap * .3 : 0);
-    let hdr = null, cta = null;
-    if (fam === 'strip' && lh < 46) cta = ctaBlock(r.x, leftW, lh, T.ctaTop, T.ctaTopInk, 'left', P, 3);
-    else {
-      const ctaH = ctaCol ? 0 : lh * (fam === 'strip' ? .36 : .28);
-      hdr = headerBlock(r.x, leftW, lh - ctaH - (ctaH ? gap * .4 : 0), T, 'left', P, fam === 'strip');
-      if (!hdr && !ctaCol) cta = ctaBlock(r.x, leftW, lh, T.ctaTop, T.ctaTopInk, 'left', P, 3); // no room for a readable headline: the button says it
-      else if (ctaH) cta = ctaBlock(r.x, leftW, ctaH, T.ctaTop, T.ctaTopInk, 'left', P);
-    }
-    const left = [hdr, cta].filter(Boolean), ys = spread(left, r.y, lh, gap * .4);
-    const bx = r.x + leftW + gap * .5;
-    band = { x: bx, y: 0, w: W - bx, h: H, from: 'right' };
-    const lx = bx + gap * .5, lw = r.x + r.w - lx - endW - ctaCol - (endW || ctaCol ? gap : 0);
-    const lu = lineupBlock(lx, lw, r.h, T, T.bandInk, P);
-    const e = endW ? endBlock(r.x + r.w - endW, endW, r.h, T, T.bandInk, 'stack', P) : null;
-    const c2 = ctaCol ? ctaBlock(r.x + r.w - ctaCol, ctaCol, r.h, T.cta, T.ctaInk, 'center', P) : null;
-    if (hdr) { put(hdr, ys[left.indexOf(hdr)], t, 'header'); t += hdr.dur; }
-    if (lu) { put(lu, r.y + (r.h - lu.h) / 2, t - .3, 'lineup'); t += lu.dur - .3; }
-    if (e) { put(e, r.y + (r.h - e.h) / 2, t - .3, 'endorser'); t += e.dur - .3; }
-    if (cta) { put(cta, ys[left.indexOf(cta)], t - .2, 'cta'); t += cta.dur - .2; }
-    if (c2) { put(c2, r.y + (r.h - c2.h) / 2, t - .2, 'cta'); t += c2.dur - .2; }
-    if (discH) put(discBlock(r.x, leftW, discH * .8, T.ink, 'left'), r.y + r.h - discH, .3, 'disclaimer');
-  }
-  return { fam, bg: T.top, bands: band ? [{ ...band, color: T.band, t0: 0, follow: band.from === 'bottom' ? 'lineup' : null }] : [], items, sticker, m, end: t };
+  const suite = SUITES[layoutOf(P)] || SUITES.spotlight;
+  return (suite && suite(P, T)) || { fam: 'suite', bg: state.colors.blue, bands: [], items: [], end: 1 };
 }
 
-/* ---------- drawing ---------- */
-function drawPattern(ctx, P, T, L) {
-  const W = P.w, H = P.h, m = L.m, rand = rng(W * 7 + H * 13), tone = rgba(T.ink, .06);
-  // patterns drift slowly while the ad plays
-  const drift = Number.isFinite(NOW) ? NOW : 0;
-  if (state.pattern === 'burst') {
-    const cx = W / 2, cy = L.bands[0] ? L.bands[0].y : H, R = Math.hypot(W, H), n = 32, rot = drift * .05;
-    ctx.fillStyle = tone;
-    for (let i = 0; i < n; i += 2) {
-      const a0 = rot + i * Math.PI * 2 / n, a1 = rot + (i + 1) * Math.PI * 2 / n;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a0) * R, cy + Math.sin(a0) * R); ctx.lineTo(cx + Math.cos(a1) * R, cy + Math.sin(a1) * R); ctx.fill();
-    }
-  } else if (state.pattern === 'halftone') {
-    const R = Math.max(W, H) * .5, step = clamp(m * .035, 5, 36);
-    ctx.fillStyle = rgba(T.hi, .3);
-    for (let y = 0; y < R; y += step) for (let x = W - R; x < W + step; x += step) {
-      const dd = Math.hypot(W - x, y) / R;
-      if (dd < 1) { ctx.beginPath(); ctx.arc(x, y, step * .42 * (1 - dd), 0, Math.PI * 2); ctx.fill(); }
-    }
-  } else if (state.pattern === 'stars') {
-    const n = clamp(Math.round(W * H / (m * m) * 6), 5, 36);
-    ctx.fillStyle = tone;
-    for (let i = 0; i < n; i++) ctx.fill(starPath(rand() * W, ((rand() * H - drift * m * .02) % H + H) % H, m * (.025 + rand() * .05), -Math.PI / 2 + (rand() - .5) * .6 + drift * .2));
-  }
-}
-function drawSticker(ctx, S, T) {
-  const R = S.d / 2, fill = T.top === state.colors.yellow ? state.colors.blue : state.colors.yellow, ink = fill === state.colors.blue ? state.colors.white : state.colors.black;
-  const p = prog(S.t0, .6);
-  if (p <= 0) return;
-  ctx.save(); ctx.translate(S.cx, S.cy); ctx.rotate(-.16 - (1 - EASE.out(p)) * 1.2); ctx.scale(EASE.back(p), EASE.back(p));
-  ctx.fillStyle = fill; ctx.fill(starPath(0, 0, R, 0, 14, .84));
-  const res = fitStack(MC, [{ text: state.text.sticker, role: 'heavy', r: 1, lh: 1, color: ink }], R * 1.4, R * 1.1, R * .45);
-  if (res) drawStack(ctx, res, -R * .7, -res.total / 2, 'center');
-  ctx.restore();
-}
-
-/* ---------- manual tweaks ---------- */
-// dx, dy are fractions of the ad's width and height so a custom size can change; s scales around the element's center
+/* ---------- edits on elements ---------- */
+/* per size and design, per element: dx, dy (moves, as fractions of the ad so a custom size can change),
+   s (scale), weight / hweight (text and highlight weight), width, color / hcolor (text and highlight
+   color), fill (shapes, pills, backgrounds) and hidden */
 const tweaksFor = P => state.tweaks?.[P.key]?.[layoutOf(P)] || {};
 function tweakOf(P, id, create) {
   const L = layoutOf(P);
@@ -956,23 +704,39 @@ function tweakOf(P, id, create) {
   state.tweaks[P.key] ??= {}; state.tweaks[P.key][L] ??= {};
   return (state.tweaks[P.key][L][id] ??= { dx: 0, dy: 0, s: 1 });
 }
-// where an element ends up after its tweak, in ad pixels
+const NO_TWEAK = { dx: 0, dy: 0, s: 1 };
+// an element's box before its own move/resize (text measures itself, since weight and width change how wide it is)
+function baseBox(it, tk) { const m = it.measure ? it.measure(tk) : { x: it.x || 0, w: it.w || 0 }; return { x: m.x, y: it.y, w: m.w, h: it.b.h }; }
+// where an element ends up after its edits (and its parent's, for a card's name lines), in ad pixels
 function itemBox(P, it) {
-  const tk = tweaksFor(P)[it.id] || { dx: 0, dy: 0, s: 1 }, w = (it.w || 0) * tk.s, h = it.b.h * tk.s;
-  const cx = (it.x || 0) + (it.w || 0) / 2 + tk.dx * P.w, cy = it.y + it.b.h / 2 + tk.dy * P.h;
+  const T = tweaksFor(P), tk = T[it.id] || NO_TWEAK, b = baseBox(it, tk), s0 = tk.s ?? 1;
+  let cx = b.x + b.w / 2 + (tk.dx || 0) * P.w, cy = b.y + b.h / 2 + (tk.dy || 0) * P.h, w = b.w * s0, h = b.h * s0;
+  const pit = it.parent && it._L?.byId.get(it.parent), pt = pit && T[it.parent];
+  if (pt) {
+    const pb = baseBox(pit, pt), px = pb.x + pb.w / 2, py = pb.y + pb.h / 2, s = pt.s ?? 1;
+    cx = px + (cx - px) * s + (pt.dx || 0) * P.w; cy = py + (cy - py) * s + (pt.dy || 0) * P.h; w *= s; h *= s;
+  }
   return { x: cx - w / 2, y: cy - h / 2, w, h, cx, cy };
 }
+function applyTweak(ctx, P, it, tk) {
+  const b = baseBox(it, tk), cx = b.x + b.w / 2, cy = b.y + b.h / 2, s = tk.s ?? 1;
+  ctx.translate(cx + (tk.dx || 0) * P.w, cy + (tk.dy || 0) * P.h); ctx.scale(s, s); ctx.translate(-cx, -cy);
+}
+let CUR_OV = null, CUR_EDITOR = false; // the edits on the element being drawn; whether the editor is drawing
 function drawItem(ctx, P, it) {
-  const tk = it.id && tweaksFor(P)[it.id];
-  if (!tk) { it.b.draw(it.y, it.t0); return; }
-  const cx = (it.x || 0) + (it.w || 0) / 2, cy = it.y + it.b.h / 2;
-  ctx.save(); ctx.translate(cx + tk.dx * P.w, cy + tk.dy * P.h); ctx.scale(tk.s, tk.s); ctx.translate(-cx, -cy);
-  it.b.draw(it.y, it.t0); ctx.restore();
+  const T = tweaksFor(P), tk = it.id ? T[it.id] : null, pt = it.parent ? T[it.parent] : null, hidden = tk?.hidden || pt?.hidden;
+  if (hidden && !CUR_EDITOR) return;
+  ctx.save();
+  if (hidden) ctx.globalAlpha *= .2; // hidden elements stay faintly visible in the editor so they can be picked again
+  const pit = pt && it._L?.byId.get(it.parent);
+  if (pit) applyTweak(ctx, P, pit, pt);
+  if (tk) applyTweak(ctx, P, it, tk);
+  CUR_OV = tk; it.b.draw(it.y, it.t0); CUR_OV = null;
+  ctx.restore();
 }
 
 // a band sweeps in from one side (or fades in)
 function drawBand(ctx, P, b) {
-  if (b.follow) { const tk = tweaksFor(P)[b.follow]; if (tk?.dy) b = { ...b, y: b.y + tk.dy * P.h, h: b.h - tk.dy * P.h }; }
   const p = EASE.out(prog(b.t0, .65));
   if (p <= 0) return;
   ctx.fillStyle = b.color;
@@ -982,32 +746,48 @@ function drawBand(ctx, P, b) {
   else if (b.from === 'right') ctx.fillRect(b.x + b.w * (1 - p), b.y, b.w * p, b.h);
   else ctx.fillRect(b.x, b.y + b.h * (1 - p), b.w, b.h * p);
 }
-/* t is seconds into the animation (Infinity = the finished ad). If the
-   intro is longer than the chosen length allows, it plays faster. */
+/* t is seconds into the animation (Infinity = the finished ad). If the intro is longer
+   than the chosen length allows, it plays faster. `slide` freezes one slide, fully built,
+   for editing. Slides change through an iris (or a wipe or crossfade, per motion style). */
 let CUR_P = null; // the size being rendered right now (an export marks GIFs with gif: true)
-function render(ctx, P, k, editor, t = Infinity) {
+const slideAt = (L, t) => { let k = 0; L.slides.forEach((s, j) => { if (t >= s.start) k = j; }); return k; };
+const speedOf = L => Math.max(1, L.end / Math.max(1, state.duration - 1.5));
+function render(ctx, P, k, editor, t = Infinity, slide = null) {
   ctx.setTransform(k, 0, 0, k, 0, 0);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
-  CUR_P = P;
+  CUR_P = P; CUR_EDITOR = !!editor;
   const T = themeFor(P), L = plan(P, T);
-  const speed = Math.max(1, L.end / Math.max(1, state.duration - 1.5));
-  NOW = state.motion === 'none' ? Infinity : t * speed; DC = ctx;
+  NOW = slide != null || state.motion === 'none' ? Infinity : t * speedOf(L); DC = ctx;
   try {
     ctx.fillStyle = L.bg; ctx.fillRect(0, 0, P.w, P.h);
-    if (L.fam !== 'stripes' && L.fam !== 'suite') drawPattern(ctx, P, T, L);
     for (const b of L.bands) drawBand(ctx, P, b);
-    // suites can paint under the items, over them (full-frame scenes), and keep some items on top of everything
     L.under?.(ctx, P);
-    L.items.forEach(it => !it.top && drawItem(ctx, P, it));
+    const SL = L.slides?.length ? L.slides : null, n = SL ? (slide != null ? clamp(slide, 0, SL.length - 1) : slideAt(L, NOW)) : 0;
+    if (SL) {
+      const drawSlide = j => L.items.forEach(it => it.slide === j && !it.top && drawItem(ctx, P, it));
+      const p = slide == null && n > 0 ? prog(SL[n].start, .5) : 1;
+      if (p < 1) {
+        drawSlide(n - 1);
+        ctx.save();
+        if (state.motion === 'fade') ctx.globalAlpha = EASE.out(p);
+        else {
+          ctx.beginPath();
+          if (state.motion === 'slide') ctx.rect(P.w * (1 - EASE.out(p)), 0, P.w, P.h);
+          else ctx.arc(SL[n].ox, SL[n].oy, Math.hypot(P.w, P.h) * EASE.out(p), 0, Math.PI * 2);
+          ctx.clip();
+        }
+        drawSlide(n); ctx.restore();
+      } else drawSlide(n);
+      L.items.forEach(it => it.slide === '*' && !it.top && drawItem(ctx, P, it));
+    } else L.items.forEach(it => !it.top && drawItem(ctx, P, it));
     L.over?.(ctx, P);
-    L.items.forEach(it => it.top && drawItem(ctx, P, it));
-    if (L.sticker?.cx) drawSticker(ctx, L.sticker, T);
+    L.items.forEach(it => it.top && (!SL || it.slide === '*' || it.slide === n) && drawItem(ctx, P, it));
     // optional fade at the very end so a looping video starts again cleanly
-    if (Number.isFinite(t) && state.outro === 'fade') {
+    if (Number.isFinite(t) && slide == null && state.outro === 'fade') {
       const f = clamp((t - (state.duration - .45)) / .45, 0, 1);
-      if (f > 0) { ctx.globalAlpha = f; ctx.fillStyle = T.top; ctx.fillRect(0, 0, P.w, P.h); ctx.globalAlpha = 1; }
+      if (f > 0) { ctx.globalAlpha = f; ctx.fillStyle = L.bg; ctx.fillRect(0, 0, P.w, P.h); ctx.globalAlpha = 1; }
     }
-  } finally { NOW = Infinity; DC = MC; }
+  } finally { NOW = Infinity; DC = MC; CUR_EDITOR = false; }
   if (editor && P.safe && state.guides) {
     const s = P.safe;
     ctx.fillStyle = 'rgba(255,40,40,.16)';
@@ -1039,11 +819,12 @@ function drawSingle(full) {
     c.style.width = `${Math.round(P.w * k)}px`; c.style.height = `${Math.round(P.h * k)}px`;
   }
   viewK = k;
-  render(c.getContext('2d'), P, k * dpr, true, playT);
+  render(c.getContext('2d'), P, k * dpr, true, playT, frozen() ? editSlide : null);
   drawSelection(c.getContext('2d'), P, k * dpr);
   $('#scrub').value = Math.round(playT / state.duration * 1000);
   $('#timeRead').textContent = `${playT.toFixed(1)}s`;
   if (!full) return;
+  renderSlideBar();
   $('#sizeInfo').innerHTML = `<b>${esc(P.name)}</b> · ${P.w}×${P.h}px · shown at ${Math.round(k * 100)}%${P.note ? ` · ${esc(P.note)}` : ''}`;
   const warn = [];
   if (state.sizes[P.key]?.endorser && !state.endorser.photo) warn.push('No endorser photo yet: add one on the Endorser tab.');
@@ -1052,54 +833,67 @@ function drawSingle(full) {
   if (!state.sizes[P.key]?.disclaimer || !state.text.disclaimer.trim()) warn.push('No disclaimer on this size.');
   $('#warnings').textContent = warn.join(' ');
 }
-/* ---------- direct editing: click, drag, resize ---------- */
-let selId = null, hoverId = null, dragging = null, viewK = 1;
-const ELEMENT_NAMES = { header: 'Headline', lineup: 'Judges', endorser: 'Endorser', cta: 'Button', disclaimer: 'Disclaimer', footer: 'Footer', ticker: 'Ticker', group: 'Judges', names: 'Names', note: 'Marker note', burst: 'Starburst', kicker: 'Tag', cards: 'Judge cards' };
-const nameOf = id => ELEMENT_NAMES[id] || (/^name\d/.test(id) ? `${state.candidates[+id.slice(4)].last} name` : /^photo\d/.test(id) ? `${state.candidates[+id.slice(5)].last} photo` : id);
-const currentItems = () => { const P = presetOf(state.size); return { P, items: plan(P, themeFor(P)).items.filter(it => it.id) }; };
+/* ---------- direct editing: slides, click, drag, resize, styles ---------- */
+let selId = null, hoverId = null, dragging = null, viewK = 1, editSlide = null;
+const curPlan = () => { const P = presetOf(state.size); return { P, L: plan(P, themeFor(P)) }; };
+// the slide on screen: the one being edited, or (while it plays) the one the animation is on
+function shownSlide() {
+  const { L } = curPlan();
+  if (!L.slides?.length) return 0;
+  if (editSlide != null) return clamp(editSlide, 0, L.slides.length - 1);
+  return slideAt(L, state.motion === 'none' ? Infinity : playT * speedOf(L));
+}
+const frozen = () => !playing && editSlide != null;
+const currentItems = () => {
+  const { P, L } = curPlan(), k = shownSlide();
+  return { P, L, items: L.items.filter(it => it.id && (!L.slides?.length || it.slide === k || it.slide === '*')) };
+};
+const nameOf = id => currentItems().items.find(i => i.id === id)?.name || id;
 const adPoint = e => { const r = $('#ad').getBoundingClientRect(); return { x: (e.clientX - r.left) / viewK, y: (e.clientY - r.top) / viewK }; };
 const inBox = (p, b) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
 function hit(p) {
   const { P, items } = currentItems();
-  // the smallest box under the pointer wins, so a name inside a big band can be picked
-  const under = items.filter(it => inBox(p, itemBox(P, it))).sort((a, b) => itemBox(P, a).w * itemBox(P, a).h - itemBox(P, b).w * itemBox(P, b).h);
-  return under[0]?.id || null;
+  // the smallest box under the pointer wins, so a line of text inside a big panel can be picked
+  const area = it => { const b = itemBox(P, it); return b.w * b.h; };
+  return items.filter(it => inBox(p, itemBox(P, it))).sort((a, b) => area(a) - area(b))[0]?.id || null;
 }
 const handleSize = () => 11 / viewK;
 function onHandle(p) {
   const { P, items } = currentItems(), it = selId && items.find(i => i.id === selId);
-  if (!it) return false;
+  if (!it || it.fixed) return false;
   const b = itemBox(P, it), hs = handleSize();
   return Math.abs(p.x - (b.x + b.w)) < hs && Math.abs(p.y - (b.y + b.h)) < hs;
 }
 function drawSelection(ctx, P, K) {
   const { items } = currentItems();
   ctx.setTransform(K, 0, 0, K, 0, 0);
-  const lw = 1.6 / viewK;
+  const lw = 1.6 / viewK, inset = it => { const b = itemBox(P, it); return it.fixed ? { x: b.x + lw * 2, y: b.y + lw * 2, w: b.w - lw * 4, h: b.h - lw * 4 } : b; };
   const hov = hoverId && hoverId !== selId && items.find(i => i.id === hoverId);
-  if (hov) { const b = itemBox(P, hov); ctx.strokeStyle = 'rgba(255,45,149,.75)'; ctx.lineWidth = lw; ctx.setLineDash([5 / viewK, 4 / viewK]); ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]); }
+  if (hov) { const b = inset(hov); ctx.strokeStyle = 'rgba(255,45,149,.75)'; ctx.lineWidth = lw; ctx.setLineDash([5 / viewK, 4 / viewK]); ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]); }
   const sel = selId && items.find(i => i.id === selId);
   if (sel) {
-    const b = itemBox(P, sel), hs = handleSize();
+    const b = inset(sel), hs = handleSize();
     ctx.strokeStyle = '#ff2d95'; ctx.lineWidth = lw * 1.4; ctx.strokeRect(b.x, b.y, b.w, b.h);
-    ctx.fillStyle = '#fff'; ctx.fillRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs);
-    ctx.strokeRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs);
+    if (!sel.fixed) { ctx.fillStyle = '#fff'; ctx.fillRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs); ctx.strokeRect(b.x + b.w - hs / 2, b.y + b.h - hs / 2, hs, hs); }
   }
 }
 const ad = $('#ad');
 ad.addEventListener('pointerdown', e => {
-  const p = adPoint(e), { P, items } = currentItems();
-  // edit on the finished frame, where everything is in place
-  setPlaying(false); playT = state.duration;
+  const p = adPoint(e);
+  // editing freezes the slide that was on screen, fully built
+  if (!frozen()) editSlide = shownSlide();
+  setPlaying(false);
+  const { P, items } = currentItems();
   if (onHandle(p)) {
-    const it = items.find(i => i.id === selId), b = itemBox(P, it), tk = tweakOf(P, selId) || { s: 1 };
-    dragging = { mode: 'size', cx: b.cx, cy: b.cy, d0: Math.max(4, Math.hypot(p.x - b.cx, p.y - b.cy)), s0: tk.s };
+    const it = items.find(i => i.id === selId), b = itemBox(P, it), tk = tweakOf(P, selId) || NO_TWEAK;
+    dragging = { mode: 'size', cx: b.cx, cy: b.cy, d0: Math.max(4, Math.hypot(p.x - b.cx, p.y - b.cy)), s0: tk.s ?? 1 };
   } else {
     selId = hit(p);
-    if (selId) { const tk = tweakOf(P, selId) || { dx: 0, dy: 0 }; dragging = { mode: 'move', x0: p.x, y0: p.y, dx0: tk.dx, dy0: tk.dy }; }
+    const it = selId && items.find(i => i.id === selId);
+    if (it && !it.fixed) { const tk = tweakOf(P, selId) || NO_TWEAK; dragging = { mode: 'move', x0: p.x, y0: p.y, dx0: tk.dx || 0, dy0: tk.dy || 0 }; }
   }
   if (dragging) ad.setPointerCapture(e.pointerId);
-  renderTweakBar(); drawSingle(false);
+  renderSlideBar(); renderTweakBar(); drawSingle(false);
 });
 ad.addEventListener('pointermove', e => {
   const p = adPoint(e), P = presetOf(state.size);
@@ -1109,36 +903,72 @@ ad.addEventListener('pointermove', e => {
     else tk.s = clamp(dragging.s0 * Math.hypot(p.x - dragging.cx, p.y - dragging.cy) / dragging.d0, .2, 4);
     renderTweakBar(true); drawSingle(false); return;
   }
-  const h = onHandle(p) ? selId : hit(p);
-  ad.style.cursor = onHandle(p) ? 'nwse-resize' : h ? 'move' : 'default';
+  const h = onHandle(p) ? selId : hit(p), it = h && currentItems().items.find(i => i.id === h);
+  ad.style.cursor = onHandle(p) ? 'nwse-resize' : it ? (it.fixed ? 'pointer' : 'move') : 'default';
   if (h !== hoverId) { hoverId = h; drawSingle(false); }
 });
 const endDrag = () => { if (dragging) { dragging = null; save(); renderTweakBar(); } };
 ad.addEventListener('pointerup', endDrag);
 ad.addEventListener('pointercancel', endDrag);
 ad.addEventListener('pointerleave', () => { if (!dragging && hoverId) { hoverId = null; drawSingle(false); } });
+
+// slide chips: pick a slide to freeze it for editing
+function renderSlideBar() {
+  const { L } = curPlan(), bar = $('#slideBar');
+  if (!L.slides || L.slides.length < 2) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  const k = frozen() ? clamp(editSlide, 0, L.slides.length - 1) : -1;
+  bar.innerHTML = `<span class="hint">Slides</span>` + L.slides.map((s, j) => `<button class="chip${j === k ? ' active' : ''}" data-slide="${j}">${j + 1} · ${esc(s.name)}</button>`).join('');
+  $$('#slideBar [data-slide]').forEach(b => b.onclick = () => { editSlide = +b.dataset.slide; selId = null; setPlaying(false); renderSlideBar(); renderTweakBar(); drawSingle(false); });
+}
+// the edit bar under the ad: what's selected and everything that can change on it
+const swatches = () => [state.colors.yellow, state.colors.blue, state.colors.white, state.colors.black];
+const colorCtl = (key, label, cur) => `<span class="tk-ctl"><span class="tk-lab">${label}</span>${swatches().map(c => `<button class="sw${cur && cur.toLowerCase() === c.toLowerCase() ? ' on' : ''}" data-col="${key}" data-v="${c}" style="background:${c}" title="${c}"></button>`).join('')}<input type="color" data-colin="${key}" value="${cur || '#ffffff'}" title="Any color">${cur ? `<button class="tk-x" data-colclear="${key}" title="Back to the design's color">↺</button>` : ''}</span>`;
+const rangeCtl = (key, label, min, max, step, val, unit = '') => `<span class="tk-ctl"><span class="tk-lab">${label}</span><input type="range" data-tk="${key}" min="${min}" max="${max}" step="${step}" value="${val}"><output data-tkout="${key}">${Math.round(val)}${unit}</output></span>`;
 function renderTweakBar(valuesOnly) {
-  const P = presetOf(state.size), { items } = currentItems(), bar = $('#tweakBar');
+  const { P, L, items } = currentItems(), bar = $('#tweakBar');
   if (selId && !items.some(i => i.id === selId)) selId = null;
-  const tk = selId && tweakOf(P, selId), any = Object.keys(tweaksFor(P)).length;
-  if (valuesOnly && selId && $('#tkSize')) { $('#tkSize').value = Math.round((tk?.s || 1) * 100); $('#tkOut').textContent = `${Math.round((tk?.s || 1) * 100)}%`; return; }
-  bar.innerHTML = selId
-    ? `<b>${esc(nameOf(selId))}</b><label>Size <input type="range" id="tkSize" min="20" max="300" value="${Math.round((tk?.s || 1) * 100)}"></label><output id="tkOut">${Math.round((tk?.s || 1) * 100)}%</output>
-       <button id="tkReset" class="ghost sm">Reset</button>${any ? '<button id="tkResetAll" class="ghost sm">Reset all on this size</button>' : ''}<span class="hint">Drag to move · corner to resize · arrow keys nudge · Esc to deselect</span>`
-    : `<span class="hint">Click anything on the ad to move or resize it. Tweaks apply to this size and layout only.</span>${any ? '<button id="tkResetAll" class="ghost sm">Reset all on this size</button>' : ''}`;
-  $('#tkSize')?.addEventListener('input', e => { const t = tweakOf(P, selId, true); t.s = +e.target.value / 100; $('#tkOut').textContent = `${e.target.value}%`; drawSingle(false); });
-  $('#tkSize')?.addEventListener('change', save);
-  $('#tkReset')?.addEventListener('click', () => { delete state.tweaks[P.key]?.[layoutOf(P)]?.[selId]; save(); renderTweakBar(); drawSingle(false); });
-  $('#tkResetAll')?.addEventListener('click', () => { if (state.tweaks[P.key]) delete state.tweaks[P.key][layoutOf(P)]; save(); renderTweakBar(); drawSingle(false); });
+  const it = selId && items.find(i => i.id === selId), tk = selId ? tweakOf(P, selId) : null, any = Object.keys(tweaksFor(P)).length;
+  if (valuesOnly && it && $('[data-tk="s"]')) { const v = Math.round((tk?.s ?? 1) * 100); $('[data-tk="s"]').value = v; $('[data-tkout="s"]').textContent = `${v}%`; return; }
+  const multi = L.slides?.length > 1;
+  const pick = `<select id="tkPick"><option value="">${it ? 'Select another element…' : 'Select an element…'}</option>${items.map(i => `<option value="${esc(i.id)}"${i.id === selId ? ' selected' : ''}>${esc(i.name || i.id)}${tweaksFor(P)[i.id]?.hidden ? ' (hidden)' : ''}</option>`).join('')}</select>`;
+  const resetAll = any ? '<button id="tkResetAll" class="ghost sm">Reset all edits on this size</button>' : '';
+  if (!it) {
+    bar.innerHTML = `<div class="tk-row"><span class="hint">Click anything on the ad to edit it: every line of text, photo and shape is separate.${multi ? ' Pick a slide above to edit that slide.' : ''} Edits apply to this size and design only.</span></div><div class="tk-row">${pick}${resetAll}</div>`;
+  } else {
+    const d = roleDefaults(it.role), dh = roleDefaults('heavy'), ctl = [];
+    if (!it.fixed) ctl.push(rangeCtl('s', 'Size', 20, 300, 1, (tk?.s ?? 1) * 100, '%'));
+    if (it.textual && d) ctl.push(rangeCtl('weight', 'Weight', 100, 900, 10, tk?.weight ?? d.weight), rangeCtl('width', 'Width', 25, 200, 1, tk?.width ?? d.width, '%'));
+    if (it.textual) ctl.push(colorCtl('color', 'Text', tk?.color));
+    if (it.hasHi) { ctl.push(colorCtl('hcolor', 'Highlight', tk?.hcolor)); if (dh) ctl.push(rangeCtl('hweight', 'Highlight weight', 100, 900, 10, tk?.hweight ?? dh.weight)); }
+    if (it.fillable) ctl.push(colorCtl('fill', it.textual ? 'Fill' : 'Color', tk?.fill));
+    ctl.push(`<label class="check tk-ctl"><input type="checkbox" id="tkHide"${tk?.hidden ? ' checked' : ''}> Hide</label>`);
+    bar.innerHTML = `<div class="tk-row"><b>${esc(it.name || it.id)}</b>${pick}<button id="tkReset" class="ghost sm">Reset this element</button>${resetAll}</div>
+      <div class="tk-row">${ctl.join('')}</div>
+      <div class="tk-row"><span class="hint">${it.fixed ? 'Backgrounds stay put; change their color here.' : 'Drag to move · drag the corner to resize · arrow keys nudge (Shift = 10px) · Esc deselects'}</span></div>`;
+  }
+  const edit = fn => { const t = tweakOf(P, selId, true); fn(t); };
+  $$('[data-tk]', bar).forEach(el => {
+    el.oninput = () => { const k = el.dataset.tk, v = +el.value; edit(t => { t[k] = k === 's' ? v / 100 : v; }); $(`[data-tkout="${k}"]`, bar).textContent = `${Math.round(v)}${k === 's' || k === 'width' ? '%' : ''}`; drawSingle(false); };
+    el.onchange = save;
+  });
+  $$('[data-col]', bar).forEach(b => b.onclick = () => { edit(t => { t[b.dataset.col] = b.dataset.v; }); save(); renderTweakBar(); drawSingle(false); });
+  $$('[data-colin]', bar).forEach(el => { el.oninput = () => { edit(t => { t[el.dataset.colin] = el.value; }); drawSingle(false); }; el.onchange = () => { save(); renderTweakBar(); }; });
+  $$('[data-colclear]', bar).forEach(b => b.onclick = () => { edit(t => { delete t[b.dataset.colclear]; }); save(); renderTweakBar(); drawSingle(false); });
+  $('#tkHide', bar)?.addEventListener('change', e => { edit(t => { t.hidden = e.target.checked; }); save(); renderTweakBar(); drawSingle(false); });
+  $('#tkPick', bar).onchange = e => { if (!frozen()) { editSlide = shownSlide(); setPlaying(false); renderSlideBar(); } selId = e.target.value || null; renderTweakBar(); drawSingle(false); };
+  $('#tkReset', bar)?.addEventListener('click', () => { delete state.tweaks[P.key]?.[layoutOf(P)]?.[selId]; save(); renderTweakBar(); drawSingle(false); });
+  $('#tkResetAll', bar)?.addEventListener('click', () => { if (confirm('Clear every edit on this size in this design?')) { if (state.tweaks[P.key]) delete state.tweaks[P.key][layoutOf(P)]; save(); renderTweakBar(); drawSingle(false); } });
 }
 document.addEventListener('keydown', e => {
   if (!selId || state.view !== 'single' || /input|textarea|select/i.test(e.target.tagName)) return;
-  const P = presetOf(state.size), step = e.shiftKey ? 10 : 1;
+  const P = presetOf(state.size), step = e.shiftKey ? 10 : 1, it = currentItems().items.find(i => i.id === selId);
   const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-  if (mv) { const tk = tweakOf(P, selId, true); tk.dx += mv[0] / P.w; tk.dy += mv[1] / P.h; }
+  if (e.key === 'Escape') selId = null;
+  else if (it?.fixed) return;
+  else if (mv) { const tk = tweakOf(P, selId, true); tk.dx += mv[0] / P.w; tk.dy += mv[1] / P.h; }
   else if (e.key === '+' || e.key === '=') tweakOf(P, selId, true).s *= 1.05;
   else if (e.key === '-' || e.key === '_') tweakOf(P, selId, true).s /= 1.05;
-  else if (e.key === 'Escape') selId = null;
   else return;
   e.preventDefault(); save(); renderTweakBar(); drawSingle(false);
 });
@@ -1152,9 +982,9 @@ function tick(ts) {
   }
   requestAnimationFrame(tick);
 }
-function setPlaying(v) { playing = v; $('#playBtn').textContent = v ? '❚❚' : '▶'; }
+function setPlaying(v) { playing = v; if (v) editSlide = null; $('#playBtn').textContent = v ? '❚❚' : '▶'; renderSlideBar(); }
 $('#playBtn').onclick = () => { if (!playing && playT >= state.duration - .05) playT = 0; setPlaying(!playing); };
-$('#scrub').oninput = e => { setPlaying(false); playT = +e.target.value / 1000 * state.duration; drawSingle(false); };
+$('#scrub').oninput = e => { setPlaying(false); editSlide = null; renderSlideBar(); playT = +e.target.value / 1000 * state.duration; drawSingle(false); };
 document.addEventListener('keydown', e => {
   if (e.code !== 'Space' || /input|textarea|select/i.test(e.target.tagName)) return;
   e.preventDefault(); $('#playBtn').click();
@@ -1165,7 +995,7 @@ function drawGrid() {
   if (grid.children.length !== PRESETS.length) {
     grid.innerHTML = PRESETS.map(p => `<button class="ad-card" data-key="${p.key}"><canvas></canvas><div><b>${esc(p.name)}</b> <span></span></div></button>`).join('');
     $$('.ad-card', grid).forEach(b => {
-      b.onclick = () => { state.size = b.dataset.key; if ($('#gridLayout').value) state.sizes[b.dataset.key].layout = $('#gridLayout').value; playT = 0; selId = null; setView('single'); renderSizeList(); renderMessages(); renderLayouts(); renderTweakBar(); bindAll(); save(); };
+      b.onclick = () => { state.size = b.dataset.key; if ($('#gridLayout').value) state.sizes[b.dataset.key].layout = $('#gridLayout').value; playT = 0; selId = null; editSlide = null; setView('single'); renderSizeList(); renderMessages(); renderLayouts(); renderTweakBar(); bindAll(); save(); };
       b.onmouseenter = () => playCard(b);
     });
   }
@@ -1302,10 +1132,10 @@ function renderLayouts() {
   gl.value = keep;
 }
 $('#gridLayout').onchange = () => drawGrid();
-$('#layoutPick').onchange = e => { state.sizes[state.size].layout = e.target.value; selId = null; save(); renderLayouts(); renderTweakBar(); redraw(); };
+$('#layoutPick').onchange = e => { state.sizes[state.size].layout = e.target.value; selId = null; editSlide = null; save(); renderLayouts(); renderTweakBar(); redraw(); };
 $$('[data-layout-all]').forEach(b => b.onclick = () => {
   PRESETS.forEach((p, i) => { state.sizes[p.key].layout = b.dataset.layoutAll === 'mix' ? mixLayout(p, i) : b.dataset.layoutAll; });
-  save(); renderLayouts(); redraw();
+  selId = null; editSlide = null; save(); renderLayouts(); renderTweakBar(); redraw();
 });
 $('#msgPick').onchange = e => { state.sizes[state.size].message = +e.target.value; save(); renderMessages(); redraw(); };
 $('#addMsg').onclick = () => { state.messages.push({ ...state.messages[state.messages.length - 1] }); save(); renderMessages(); bindAll(); };
@@ -1322,7 +1152,7 @@ function renderSizeList() {
       <span><span class="nm">${esc(P.name)}</span>${cfg.endorser ? ' <span class="tagp">● photo</span>' : ''}</span><span class="dim">${P.w}×${P.h}</span></button></li>`;
   }
   $('#sizeList').innerHTML = html;
-  $$('#sizeList button[data-key]').forEach(b => b.onclick = () => { state.size = b.dataset.key; playT = 0; selId = null; save(); renderSizeList(); renderMessages(); renderLayouts(); renderTweakBar(); bindAll(); setView('single'); });
+  $$('#sizeList button[data-key]').forEach(b => b.onclick = () => { state.size = b.dataset.key; playT = 0; selId = null; editSlide = null; save(); renderSizeList(); renderMessages(); renderLayouts(); renderTweakBar(); bindAll(); setView('single'); });
   $$('#sizeList input[data-batch]').forEach(b => b.onchange = () => { state.sizes[b.dataset.batch].batch = b.checked; save(); renderSizeToggles(); });
   $('#customBox').hidden = state.size !== 'custom';
 }
@@ -1347,6 +1177,7 @@ $$('[data-all]').forEach(b => b.onclick = () => {
   save(); renderSizeList(); renderSizeToggles(); redraw();
 });
 function renderThemes() {
+  if (!$('#themePick')) return;
   $('#themePick').innerHTML = Object.entries(THEMES).map(([k, label]) => {
     const t = themeFor(null, k);
     return `<button data-theme="${k}" class="${k === state.theme ? 'active' : ''}" style="background:linear-gradient(${t.top} 55%, ${t.band} 55%);color:${t.ink}"><span>${label}</span></button>`;
@@ -1637,7 +1468,7 @@ $('#resetAll').onclick = () => { if (confirm('Reset all text, candidates, photo,
 /* ---------- suites (judicial/suites.js) plug in here ---------- */
 const SUITES = {};
 window.DBS = {
-  state: () => state, now: () => NOW, ctx: () => DC, curP: () => CUR_P, MC,
+  state: () => state, now: () => NOW, ctx: () => DC, curP: () => CUR_P, ov: () => CUR_OV, fontOv, MC,
   clamp, rgba, EASE, prog, enter, popBack, font, words, wrap, fitStack, stackAt, drawStack, drawLines, stackDur, blockH, ASC, search, pillTextTop, minText, msgOf, usePhotos,
   headerBlock, lineupBlock, endBlock, ctaBlock, discBlock, drawPhoto,
   judgeImg: i => { const im = candImgs[i]; return im && im.complete && im.naturalWidth ? im : null; },
@@ -1660,6 +1491,7 @@ initUI();
 requestAnimationFrame(tick);
 warmFonts();
 // for headless checks: render a preset to a data URL
-window.__renderSize = (key, t, layout) => { const P = layout ? { ...presetOf(key), layout } : presetOf(key), c = document.createElement('canvas'); c.width = P.w; c.height = P.h; render(c.getContext('2d'), P, 1, false, t ?? Infinity); return c.toDataURL('image/png'); };
+window.__renderSize = (key, t, layout, slide = null) => { const P = layout ? { ...presetOf(key), layout } : presetOf(key), c = document.createElement('canvas'); c.width = P.w; c.height = P.h; render(c.getContext('2d'), P, 1, false, t ?? Infinity, slide); return c.toDataURL('image/png'); };
+window.__slides = (key, layout) => { const P = layout ? { ...presetOf(key), layout } : presetOf(key); return (plan(P, themeFor(P)).slides || []).length; };
 window.__exportAnim = async key => { const b = await animBlob(presetOf(key)); return { type: b.type, size: b.size, data: [...new Uint8Array(await b.arrayBuffer())] }; };
 })();

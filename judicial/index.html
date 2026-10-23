@@ -46,7 +46,8 @@
       <input id="scrub" type="range" min="0" max="1000" value="0">
       <span id="timeRead" class="mono">0.0s</span>
     </div>
-    <div class="size-info"><span id="sizeInfo"></span> · <label class="inline">Layout <select id="layoutPick"></select></label> · <label class="inline">Message <select id="msgPick"></select></label></div>
+    <div class="size-info"><span id="sizeInfo"></span> · <label class="inline">Design <select id="layoutPick"></select></label> · <label class="inline">Message <select id="msgPick"></select></label></div>
+    <div class="slide-bar" id="slideBar" hidden></div>
     <div class="tweak-bar" id="tweakBar"></div>
     <div class="warn" id="warnings"></div>
   </section>
@@ -125,10 +126,9 @@
     </div>
 
     <div class="tab-body" data-body="style" hidden>
-      <h3>Layout</h3>
-      <p class="hint"><b>Lineup</b>: headline up top, judges standing in a row on the band. <b>Stripes</b>: a colored band per judge with the name on one side and the photo on the other, and a footer with the date (it turns into columns on wide banners). <b>Quadrants</b>: the same header and footer with the judges in a 2×2 checkerboard (for squarer sizes).</p>
-      <div class="bx-head"><b>Which layout each size uses</b><span class="bx-links"><button data-layout-all="mix">Mix</button><button data-layout-all="lineup">All lineup</button><button data-layout-all="stripes">All stripes</button><button data-layout-all="quads">All quadrants</button></span></div>
-      <div class="bx-head"><b>New suites</b><span class="bx-links"><button data-layout-all="spotlight">All spotlight</button><button data-layout-all="frontrow">All front row</button><button data-layout-all="scrapbook">All scrapbook</button></span></div>
+      <h3>Design</h3>
+      <p class="hint"><b>Spotlight</b>: a headline slide, a slide per judge, then an end card with everyone. <b>Front Row</b>: a ticker, a poster headline and the judges side by side. <b>Scrapbook</b>: polaroid cards, a marker note and a starburst button.</p>
+      <div class="bx-head"><b>Which design each size uses</b><span class="bx-links"><button data-layout-all="mix">Mix</button><button data-layout-all="spotlight">All spotlight</button><button data-layout-all="frontrow">All front row</button><button data-layout-all="scrapbook">All scrapbook</button></span></div>
       <div id="layoutSizes" class="msg-sizes"></div>
       <h3>Motion</h3>
       <div class="row2">
@@ -140,9 +140,7 @@
         <label>Ending<select data-bind="outro"><option value="hold">Hold the finished ad</option><option value="fade">Fade out (loops cleanly)</option></select></label>
       </div>
       <p class="hint">The intro takes about 4–5 seconds, then the finished ad holds. Shorter lengths speed the intro up. Google GIFs replay to fill 30 seconds, the most Google allows.</p>
-      <h3>Background</h3>
-      <div id="themePick" class="theme-pick"></div>
-      <label class="check"><input type="checkbox" data-bind="themeAuto"> Mix it up: a different background per size</label>
+      <h3>Colors</h3>
       <div class="color-row">
         <label>Yellow<input type="color" data-bind="colors.yellow"></label>
         <label>Blue<input type="color" data-bind="colors.blue"></label>
@@ -150,15 +148,6 @@
         <label>Text<input type="color" data-bind="colors.black"></label>
       </div>
       <button id="resetColors" class="ghost sm">Reset colors</button>
-      <label>Pattern
-        <select data-bind="pattern">
-          <option value="none">None (clean, like the literature)</option>
-          <option value="burst">Sunburst</option>
-          <option value="halftone">Halftone dots</option>
-          <option value="stars">Stars</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" data-bind="sticker"> Starburst sticker (tall feed sizes)</label>
       <label class="check"><input type="checkbox" data-bind="guides"> Show Stories safe zone (editor only)</label>
 
       <h3>Font</h3>
