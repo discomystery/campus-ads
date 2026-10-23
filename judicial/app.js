@@ -15,7 +15,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const STORE_KEY = 'judstudio.v2';
 /* the page and its scripts carry the same build id (bump-build.sh sets it); browsers cache scripts for a
    few minutes, so if a page ever runs with scripts from another build, ask for a reload instead of half-working */
-const BUILD = '20261023171512';
+const BUILD = '20261023185021';
 function staleBuild() {
   if ($('#staleBar')) return;
   const bar = document.createElement('div');
@@ -54,7 +54,7 @@ const THEMES = { classic: 'White + yellow', blue: 'Blue + yellow', yellow: 'Yell
 // photo: the campaign's cutouts ship with the studio; an upload replaces one, Remove leaves it empty ('')
 const cand = (prefix, last, office, short, photo) => ({ prefix, last, office, short, showPrefix: true, showOffice: true, photo, zoom: 1, x: 0, y: 0 });
 // Alternate messages. Each size uses one, so the set of ads doesn't all say the same thing.
-const msg = (kicker, headline, short, cta) => ({ kicker, headline, short, cta });
+const msg = (kicker, headline, short, cta) => ({ kicker, headline, short, cta, ticker: '' });
 const DEFAULT_MESSAGES = [
   msg('Today is Election Day', 'Your rights are on the ballot, and *you* could cast the *deciding vote* for *justice*.', 'Cast the *deciding vote* for *justice*.', 'Polls open till 7:30\u00a0PM'),
   msg('Today is Election Day', 'Missed early voting? *It\'s not too late.*', '*It\'s not too late.*', 'Vote by 7:30\u00a0PM tonight'),
@@ -1567,7 +1567,8 @@ function renderMessages() {
     <label>Tag above the headline<input type="text" data-bind="messages.${i}.kicker"></label>
     <label>Headline<textarea rows="2" data-bind="messages.${i}.headline"></textarea></label>
     <label>Short headline<input type="text" data-bind="messages.${i}.short"></label>
-    <label>Button<input type="text" data-bind="messages.${i}.cta"></label></div>`).join('');
+    <label>Button<input type="text" data-bind="messages.${i}.cta"></label>
+    <label>Ticker <span class="hint">(Front Row's scrolling band; separate phrases with | for a ★ between them. Blank uses the tag and button.)</span><input type="text" data-bind="messages.${i}.ticker" placeholder="${esc([m.kicker, m.cta].filter(Boolean).join(' | '))}"></label></div>`).join('');
   $$('#msgFields button[data-del]').forEach(b => b.onclick = () => {
     const d = +b.dataset.del;
     state.messages.splice(d, 1);

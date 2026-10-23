@@ -15,7 +15,7 @@
 'use strict';
 const D = window.DBS;
 if (!D) return;
-if (D.build !== '20261023171512') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
+if (D.build !== '20261023185021') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
 const { clamp, EASE, prog, font, wrap, fitStack, stackAt, search, minText, msgOf, MC, enter, popBack, ASC, blockH } = D;
 const S = () => D.state();
 const now = () => D.now();
@@ -607,6 +607,8 @@ function spotlight(P) {
 /* =========================================================================
    FRONT ROW: ticker, poster headline, the judges shoulder to shoulder
    ========================================================================= */
+// the ticker's words: the message's own ticker text (phrases split by |), else its tag and button text
+const tickerText = M => ((M.ticker || '').trim() ? M.ticker.split('|') : [M.kicker, M.cta]).map(t => (t || '').trim()).filter(Boolean).map(t => t.toUpperCase()).join('   ★   ');
 function frontrow(P) {
   const f = famOf(P), { pad, box } = frameOf(P), { Y, B, W, K } = pal(), M = msgOf(P), cfg = S().sizes[P.key] || {};
   const endOn = !!(cfg.endorser && S().endorser.name.trim()), discOn = !!(cfg.disclaimer && S().text.disclaimer.trim()), photos = D.usePhotos();
@@ -657,7 +659,7 @@ function frontrow(P) {
   };
   const names = (list, gx, gw, y, res, t0) => { const slot = gw / list.length; list.forEach((i, k) => nameEls(pl, i, `name${i}`, res[k], gx + slot * k + slot * .03, y, 'center', t0 + k * .16, { dir: 0 })); };
   const ticker = (x, y, w, h) => {
-    const text = [M.kicker, M.cta].filter(s => s && s.trim()).map(s => s.toUpperCase()).join('   ★   '), s = h * .5;
+    const text = tickerText(M), s = h * .5;
     pl.add({ id: 'ticker', name: 'Ticker', role: 'heavy', textual: true, fillable: true, x, y, w, h, t0: 0, draw: t0 => {
       const g = G(), ov = OV(), p = t0 == null ? 1 : EASE.out(prog(t0, .4));
       if (p <= 0) return;
@@ -743,44 +745,30 @@ function frontrow(P) {
     if (nf) names(ids, r.x, r.w, stripY + pad * .35, nf.res, 1.35);
     if (coopBox) cooper(coopBox.x + coopBox.w / 2, th + (stripY - th) * .42, Math.min(coopBox.w * .86, (stripY - th) * .6), 2.2);
   } else {
-    // strips: [headline] [judges on blue] [a column where the poll hours scroll]
-    const colW = P.w * (P.w > 500 ? .22 : .38), colX = P.w - colW;
-    let x = 0, w = colX;
-    if (P.w > 500) {
-      const hw = P.w * .3, PT = poster(M.short, hw - pad * 1.5, P.h - pad * 1.4 - 9, P, { maxLines: 3 });
-      if (PT) posterEls(pl, PT, pad, pad * .7, 'left', K, B, headT, 0);
-      x = hw; w = colX - hw;
-    }
-    panel(x, 0, w, P.h, .3, null);
-    const inner = { x: x + pad * .5, y: pad * .3, w: w - pad, h: P.h - pad * .6 };
-    const nfRow = namesFit(ids, inner.w / 4 * .96, P.h * .3, W, P, { modes: [[null, null]] });
-    const jh = nfRow ? P.h - nfRow.res[0].total - pad * .8 : 0;
-    if (photos && nfRow && jh >= 34) {
-      group(ids, inner.x, inner.w, P.h - nfRow.res[0].total - pad * .5, Math.min(jh, inner.w / 4 * 1.28), .6);
-      names(ids, inner.x, inner.w, P.h - nfRow.res[0].total - pad * .3, nfRow.res, .9);
+    // ultrawide strips: the ticker runs the full width on top; the judges stand along the bottom with their names
+    // (names only when there's no room for photos), the disclaimer at the right end of the bottom row
+    const th = clamp(P.h * .3, 15, 30), bh = P.h - th;
+    ticker(0, 0, P.w, th);
+    const discS = discOn ? clamp(bh * .16, 7.5, 10) : 0, discW = discOn ? clamp(P.w * .2, 92, 150) : 0;
+    const ax = pad * .6, aw = P.w - ax * 2 - (discW ? discW + pad * .4 : 0), slot = aw / 4;
+    const nfStrip = namesFit(ids, slot * .94, bh * .3, K, P, { modes: [[null, null]], max: slot * .2 });
+    const stripH = nfStrip ? nfStrip.res[0].total + pad * .5 : 0, stripY = P.h - stripH, jh = stripY - th - 2;
+    if (photos && nfStrip && jh >= 30) {
+      panel(0, th, P.w, stripY - th, .3, { cx: ax + aw / 2, cy: stripY, R: Math.min(aw * .3, (stripY - th) * .92), t0: .5 });
+      strip(0, stripY, P.w, stripH, .5);
+      group(ids, ax, aw, stripY, Math.min(jh, slot * 1.2), .7);
+      names(ids, ax, aw, stripY + pad * .25, nfStrip.res, 1.0);
+      if (discOn) discEl(pl, P, P.w - discW - pad * .4, discW, stripY + (stripH - discS * 1.15) / 2, discS, K, 'right', null, 0);
     } else {
-      const nf = namesFit(ids, inner.w / 2 * .94, inner.h / 2 * .9, W, P, { modes: [[null, null]] });
-      if (nf) [0, 1].forEach(row => names(ids.slice(row * 2, row * 2 + 2), inner.x, inner.w, inner.y + row * inner.h / 2 + (inner.h / 2 - nf.res[0].total) / 2, nf.res.slice(row * 2, row * 2 + 2), .6 + row * .3));
-    }
-    const discS = discOn ? clamp(P.h * .13, 7.5, 10) : 0, discH = discS * 1.2;
-    const cta = (M.cta || '').toUpperCase(), cres = fit1(cta, 'heavy', colW - pad, P.h - discH - pad, { color: Y, maxLines: 3 });
-    pl.add({ id: 'cta', name: 'Button', role: 'heavy', textual: true, fillable: true, x: colX, y: 0, w: colW, h: P.h, t0: 0, draw: t => {
-      const g = G(), ov = OV(), p = t == null ? 1 : EASE.out(prog(t + .2, .4)), ink = ov.color || Y;
-      g.save(); g.beginPath(); g.rect(colX, 0, colW, P.h); g.clip();
-      g.fillStyle = ov.fill || K; g.fillRect(colX + colW * (1 - p), 0, colW, P.h);
-      g.textBaseline = 'alphabetic';
-      if (ambient()) {
-        const s = (P.h - discH) * .5; g.font = D.fontOv('heavy', s, ov); g.fillStyle = ink;
-        const unit = `${cta}   ★   `, uw = g.measureText(unit).width, off = ((now() - (t ?? 0)) * s * 2.6) % uw;
-        for (let xx = colX + colW - off - uw; xx < P.w; xx += uw) g.fillText(unit, xx, (P.h - discH) / 2 + s * .36);
-      } else if (cres && p >= 1) {
-        const it = cres.out[0], top = (P.h - discH - cres.total) / 2;
-        g.font = D.fontOv('heavy', it.size, ov); g.fillStyle = ink; g.textAlign = 'center';
-        it.b.lines.forEach((l, i) => g.fillText(l.words.map(w => w.segs.map(s => s.t).join('')).join(' '), colX + colW / 2, top + it.size * ASC + i * it.size * 1.05));
+      panel(0, th, P.w, bh, .3, null);
+      const nf = namesFit(ids, slot * .94, bh * .72, W, P, { modes: [[null, null]] });
+      if (nf) names(ids, ax, aw, th + (bh - nf.res[0].total) / 2, nf.res, .6);
+      else {
+        const nf2 = namesFit(ids, aw / 2 * .94, bh / 2 * .9, W, P, { modes: [[null, null]] });
+        if (nf2) [0, 1].forEach(row => names(ids.slice(row * 2, row * 2 + 2), ax, aw, th + row * bh / 2 + (bh / 2 - nf2.res[0].total) / 2, nf2.res.slice(row * 2, row * 2 + 2), .6 + row * .3));
       }
-      g.restore();
-    } });
-    if (discOn) discEl(pl, P, colX + pad * .3, colW - pad * .6, P.h - discH - 1, discS, W, 'center', null, 0);
+      if (discOn) discEl(pl, P, P.w - discW - pad * .4, discW, th + (bh - discS * 1.15) / 2, discS, W, 'right', null, 0);
+    }
   }
   return pl.done({ bg: Y, end: 3.2 });
 }
