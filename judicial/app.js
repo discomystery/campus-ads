@@ -13,6 +13,18 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const STORE_KEY = 'judstudio.v2';
+/* the page and its scripts carry the same build id (bump-build.sh sets it); browsers cache scripts for a
+   few minutes, so if a page ever runs with scripts from another build, ask for a reload instead of half-working */
+const BUILD = '20261023170240';
+function staleBuild() {
+  if ($('#staleBar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'staleBar'; bar.className = 'stale-bar';
+  bar.innerHTML = 'The studio was updated while this page was open. <button>Reload to finish updating</button>';
+  $('button', bar).onclick = () => location.reload();
+  document.body.prepend(bar);
+}
+if (document.querySelector('meta[name="build"]')?.content !== BUILD) staleBuild();
 const GOOGLE_CAP = 150 * 1024;
 
 /* ---------- sizes ---------- */
@@ -79,7 +91,7 @@ function freshState() {
     custom: { w: 600, h: 500 },
     colors: { ...DEFAULT_COLORS },
     theme: 'classic', themeAuto: false,
-    pattern: 'none', sticker: false, guides: true, snap: true, ltab: 'sizes',
+    pattern: 'none', sticker: false, guides: true, snap: true, lcollapse: { sizes: false, layers: false },
     slideTimes: {}, // seconds per slide: slideTimes[design][slide]
     tweaks: {}, // your manual moves and resizes: tweaks[size][layout][element] = { dx, dy, s }
     duration: 8, outro: 'hold', motion: 'pop', pulse: true,
@@ -1440,12 +1452,9 @@ function renderThemes() {
 $('#resetColors').onclick = () => { state.colors = { ...DEFAULT_COLORS }; save(); bindAll(); renderThemes(); redraw(); };
 
 $$('.seg[data-view]').forEach(b => b.onclick = () => { setView(b.dataset.view); save(); });
-$$('.ptab').forEach(b => b.onclick = () => {
-  state.ltab = b.dataset.ltab;
-  $$('.ptab').forEach(x => x.classList.toggle('active', x === b));
-  $$('.lbody').forEach(x => { x.hidden = x.dataset.lbody !== b.dataset.ltab; });
-  save();
-});
+// the left panel: Sizes over Layers, each can fold away
+const renderLeft = () => ['sizes', 'layers'].forEach(k => $(`#sec${k[0].toUpperCase() + k.slice(1)}`).classList.toggle('collapsed', !!state.lcollapse[k]));
+$$('[data-lsec]').forEach(b => b.onclick = () => { const k = b.dataset.lsec; state.lcollapse[k] = !state.lcollapse[k]; save(); renderLeft(); });
 $$('.tab').forEach(b => b.onclick = () => {
   state.tab = b.dataset.tab;
   $$('.tab').forEach(x => x.classList.toggle('active', x === b));
@@ -1738,7 +1747,7 @@ window.DBS = {
   judgeImg: i => { const im = candImgs[i]; return im && im.complete && im.naturalWidth ? im : null; },
   endorserImg: () => (photoImg && photoImg.naturalWidth ? photoImg : null),
   register(key, label, fn) { SUITES[key] = fn; LAYOUTS[key] = label; renderLayouts(); redraw(); },
-  redraw,
+  redraw, build: BUILD, staleBuild,
   // a slide's length in seconds: the user's setting for this design, else the design's own default
   tweakFor: (P, id) => (P ? tweaksFor(P)[id] : null) || null,
   slideLen: (j, def) => { const v = state.slideTimes[layoutOf(CUR_P)]?.[j]; return Number.isFinite(v) ? clamp(v, .3, 10) : def; },
@@ -1751,7 +1760,7 @@ function initUI() {
   $('#customW').value = state.custom.w; $('#customH').value = state.custom.h;
   $('#kitInput').value = state.font.kit;
   $$('.tab').find(t => t.dataset.tab === state.tab)?.click();
-  $$('.ptab').find(t => t.dataset.ltab === state.ltab)?.click();
+  renderLeft();
   setView(state.view); loadPhoto(); loadCandPhotos(); fontStatus(); loadKit();
 }
 window.addEventListener('resize', redraw);
