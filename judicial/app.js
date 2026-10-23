@@ -859,7 +859,7 @@ function shownSlide() {
 const frozen = () => !playing && editSlide != null;
 const currentItems = () => {
   const { P, L } = curPlan(), k = shownSlide();
-  return { P, L, items: L.items.filter(it => it.id && (!L.slides?.length || it.slide === k || it.slide === '*')) };
+  return { P, L, items: L.items.filter(it => it.id && (!L.slides?.length || it.slide === k || it.slide === '*') && !it.off?.(P)) };
 };
 const nameOf = id => currentItems().items.find(i => i.id === id)?.name || id;
 const adPoint = e => { const r = $('#ad').getBoundingClientRect(); return { x: (e.clientX - r.left) / viewK, y: (e.clientY - r.top) / viewK }; };
@@ -868,7 +868,8 @@ function hit(p) {
   const { P, items } = currentItems();
   // the smallest box under the pointer wins, so a line of text inside a big panel can be picked
   const area = it => { const b = itemBox(P, it); return b.w * b.h; };
-  return items.filter(it => inBox(p, itemBox(P, it))).sort((a, b) => area(a) - area(b))[0]?.id || null;
+  // (shapes marked hitLast, like the frame behind a photo, only when nothing else is there; pick them in Layers)
+  return items.filter(it => inBox(p, itemBox(P, it))).sort((a, b) => (a.hitLast - b.hitLast) || area(a) - area(b))[0]?.id || null;
 }
 const handleSize = () => 11 / viewK;
 function onHandle(p) {
@@ -1170,7 +1171,13 @@ function renderTweakBar(valuesOnly) {
       ${colorCtl('color', 'Color', tk.color)}
       ${it.hasHi ? colorCtl('hcolor', 'Highlight', tk.hcolor) + (dh ? `<div class="ctl">${num('hweight', 'Highlight weight', { min: 100, max: 900, step: 10 })}${slider('hweight', 100, 900, 10)}</div>` : '') : ''}`));
   }
-  if (it.fillable) parts.push(sec(it.textual ? 'Fill' : 'Color', colorCtl('fill', it.textual ? 'Fill' : 'Color', tk.fill)));
+  if (it.framable) {
+    const dflt = it.frameDefault || (it.framable === 'endorser' ? state.endFrame : state.frame) || 'circle', cur = tk.frame || '';
+    const FR = { circle: 'Circle', square: 'Rounded square', none: 'No frame' };
+    parts.push(sec('Headshot frame', `<div class="seg-row">${[['', `Default (${FR[dflt].toLowerCase()})`], ...Object.entries(FR)].map(([k, l]) => `<button data-frame="${k}" class="${k === cur ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <p class="hint">Just this ${it.framable === 'endorser' ? 'photo' : 'headshot'} on this slide and size${twinsOf(L, it.id).length ? '; copy it to the other judge slides below' : ''}. The default is set on the ${it.framable === 'endorser' ? 'Endorser' : 'Candidates'} tab.</p>`));
+  }
+  if (it.fillable) parts.push(sec(it.framable ? 'Frame color' : it.textual ? 'Fill' : 'Color', colorCtl('fill', it.framable ? 'Color' : it.textual ? 'Fill' : 'Color', tk.fill)));
   if (!it.fixed) parts.push(sec('Timing', `<div class="ctl">${num('delay', 'Delay', { min: -1, max: 3, step: .05, unit: 's' })}${slider('delay', -1, 3, .05)}</div><p class="hint">Comes in this much later (or earlier) than the design has it.</p>`));
   parts.push(`<section class="insp-actions">
     ${twins.length ? `<button id="tkTwins" class="ghost">Copy these edits to the ${twins.length} other slide${twins.length > 1 ? 's' : ''}</button>` : ''}
@@ -1195,6 +1202,7 @@ function renderTweakBar(valuesOnly) {
     moveBy(P, it, dx, dy); after();
   });
   $('#tkMatch', box)?.addEventListener('change', e => { const o = L.byId.get(e.target.value); if (o) { setValue(P, it, 'fs', fontPx(P, o)); after(); } });
+  $$('[data-frame]', box).forEach(b => b.onclick = () => { edit(t => { if (b.dataset.frame) t.frame = b.dataset.frame; else delete t.frame; }); planVersion++; after(); });
   $$('[data-col]', box).forEach(b => b.onclick = () => { edit(t => { t[b.dataset.col] = b.dataset.v; }); after(); });
   $$('[data-colin]', box).forEach(el => { el.oninput = () => { edit(t => { t[el.dataset.colin] = el.value; }); drawSingle(false); }; el.onchange = after; });
   $$('[data-colclear]', box).forEach(b => b.onclick = () => { edit(t => { delete t[b.dataset.colclear]; }); after(); });
@@ -1732,6 +1740,7 @@ window.DBS = {
   register(key, label, fn) { SUITES[key] = fn; LAYOUTS[key] = label; renderLayouts(); redraw(); },
   redraw,
   // a slide's length in seconds: the user's setting for this design, else the design's own default
+  tweakFor: (P, id) => (P ? tweaksFor(P)[id] : null) || null,
   slideLen: (j, def) => { const v = state.slideTimes[layoutOf(CUR_P)]?.[j]; return Number.isFinite(v) ? clamp(v, .3, 10) : def; },
 };
 

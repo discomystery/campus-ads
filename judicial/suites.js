@@ -69,7 +69,7 @@ function newPlan(P) {
        x/y/w/h (its box), fs (text: font size in px), t0 (when it starts animating), draw(t0); textual/hasHi/fillable say which edits apply */
     add(o) {
       items.push({ id: o.id, slide: o.slide ?? 0, name: o.name, role: o.role, textual: !!o.textual, hasHi: !!o.hasHi, fillable: !!o.fillable,
-        fixed: !!o.fixed, top: !!o.top, parent: o.parent, fs: o.fs, align: o.align, x: o.x, y: o.y, w: o.w, t0: o.t0, measure: o.measure, b: { h: o.h, draw: (_, t) => o.draw(t) } });
+        fixed: !!o.fixed, top: !!o.top, parent: o.parent, fs: o.fs, align: o.align, framable: o.framable, frameDefault: o.frameDefault, off: o.off, hitLast: !!o.hitLast, x: o.x, y: o.y, w: o.w, t0: o.t0, measure: o.measure, b: { h: o.h, draw: (_, t) => o.draw(t) } });
     },
     done(extra) { return { fam: 'suite', bg: '#000', bands: [], items, slides, sticker: null, m: 1, end: 3, ...extra }; },
   };
@@ -358,17 +358,27 @@ function paintJudge(g, i, cx, base, h, rise = 1, clip) {
   g.restore();
 }
 const judgeAspect = i => { const im = D.judgeImg(i); return im ? im.width / im.height : 1.05; };
+// a headshot's frame: its own edit (per slide, per size), else the setting for judges or the endorser
+const judgeFrame = () => OV().frame || S().frame, endFrame = () => OV().frame || S().endFrame || 'circle';
 const framePath = (g, cx, cy, d, frame) => { if (frame === 'square') g.roundRect(cx - d / 2, cy - d / 2, d, d, d * .16); else g.arc(cx, cy, d / 2, 0, TAU); };
 // a cutout standing in a disc, the head popping out over the top
-function paintPop(g, i, cx, dcy, d, disc, rise) {
-  const frame = S().frame, h = d * 1.12, base = dcy + d / 2;
+function paintPop(g, i, cx, dcy, d, disc, rise, frame = judgeFrame()) {
+  const h = d * 1.12, base = dcy + d / 2;
   if (frame !== 'none') { g.fillStyle = disc; g.beginPath(); framePath(g, cx, dcy, d, frame); g.fill(); }
   paintJudge(g, i, cx, base, h, rise, frame === 'none' ? null : gg => { gg.rect(cx - d * .58, base - h * 2, d * 1.16, h * 2 - d / 2); framePath(gg, cx, dcy, d, frame); });
 }
-function paintFace(g, img, adj, cx, cy, d, ring) {
-  if (ring) { g.fillStyle = ring; g.beginPath(); g.arc(cx, cy, d / 2, 0, TAU); g.fill(); }
+// the endorser's face: in a ringed circle or rounded square, or (no frame) the cutout standing in the box
+function paintFace(g, img, adj, cx, cy, d, ring, frame = endFrame()) {
+  if (frame === 'none') {
+    if (!img) return;
+    const h = d * 1.1 * (adj.zoom || 1), s = h / img.height, iw = img.width * s;
+    g.drawImage(img, cx - iw / 2 + (adj.x || 0) * d * .5, cy + d / 2 - h + (adj.y || 0) * d * .5, iw, h);
+    return;
+  }
+  const sq = frame === 'square', shape = (gg, dd) => sq ? gg.roundRect(cx - dd / 2, cy - dd / 2, dd, dd, dd * .16) : gg.arc(cx, cy, dd / 2, 0, TAU);
+  if (ring) { g.fillStyle = ring; g.beginPath(); shape(g, d); g.fill(); }
   const r = d / 2 * (ring ? .9 : 1);
-  g.save(); g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.clip();
+  g.save(); g.beginPath(); shape(g, r * 2); g.clip();
   g.fillStyle = '#d9dbe3'; g.fillRect(cx - r, cy - r, r * 2, r * 2);
   if (img) {
     const h = r * 2 * 1.45 * (adj.zoom || 1), s = h / img.height, iw = img.width * s;
@@ -420,7 +430,7 @@ function gridBlock(pl, R, P, ink, disc, slide, base = 'grid') {
       const col = i % F.cols, row = Math.floor(i / F.cols), cx = x0 + col * (F.cw + F.gx), cy = y + row * (F.cellH + F.gy), t = t0 + i * .22, last = S().candidates[i].last;
       if (F.photos) {
         const mid = cx + F.cw / 2, dcy = cy + F.ph - F.d / 2;
-        photoEl(pl, { id: `${base}.photo${i}`, slide, name: `${last} · photo`, x: mid - F.d / 2, y: cy, w: F.d, h: F.ph, t0: t, fill: disc,
+        photoEl(pl, { id: `${base}.photo${i}`, slide, name: `${last} · photo`, framable: 'judge', x: mid - F.d / 2, y: cy, w: F.d, h: F.ph, t0: t, fill: disc,
           paint: (g, tt, fill) => enter(g, tt == null ? 1 : prog(tt, .45), mid, dcy, [0, F.d * .5], popBack, () => paintPop(g, i, mid, dcy, F.d, fill, motion() === 'fade' || tt == null ? 1 : prog(tt + .15, .6))) });
       }
       nameEls(pl, i, `${base}.name${i}`, F.nf.res[i], cx, cy + F.ph + F.gi, 'center', t + .35, { slide, dir: 0 });
@@ -432,7 +442,7 @@ function cooperBlock(pl, x, w, h, ring, ink, style, P, slide, base = 'cooper') {
   const E = S().endorser, name = E.name.trim();
   if (!name) return null;
   const gap = Math.min(w, h) * .08;
-  const face = (cx, cy, d, t0) => photoEl(pl, { id: `${base}.face`, slide, name: 'Roy Cooper · photo', x: cx - d / 2, y: cy - d / 2, w: d, h: d, t0, fill: ring,
+  const face = (cx, cy, d, t0) => photoEl(pl, { id: `${base}.face`, slide, name: 'Roy Cooper · photo', framable: 'endorser', x: cx - d / 2, y: cy - d / 2, w: d, h: d, t0, fill: ring,
     paint: (g, tt, fill) => enter(g, tt == null ? 1 : prog(tt, .5), cx, cy, [0, d * .4], popBack, () => paintFace(g, D.endorserImg(), E, cx, cy, d, fill)) });
   const nameLines = (res, nx, ny, align, t0) => explode(pl, `${base}.name`, res, nx, ny, align, t0, { slide, title: 'Roy Cooper', anim: 'glide', label: (_, n) => `Roy Cooper · name${n ? ` line ${n + 1}` : ''}` });
   if (style === 'stack') {
@@ -520,10 +530,13 @@ function spotlight(P) {
     bgEl(pl, k, last, bg, fillScene);
     if (base < P.h - 1) shapeEl(pl, { id: `s${k}.ground`, slide: k, name: `${last} · ground`, x: 0, y: base, w: sw, h: P.h - base, t0: ts, fill: accent, paint: (g, fill) => { g.fillStyle = fill; g.fillRect(0, base, sw, P.h - base); } });
     if (photos) {
-      if (S().frame !== 'none') shapeEl(pl, { id: `s${k}.disc`, slide: k, name: `${last} · circle`, x: cx - d / 2, y: dcy - d / 2, w: d, h: d, t0: ts + .05, fill: accent,
-        paint: (g, fill, t) => enter(g, t == null ? 1 : prog(t, .4), cx, dcy, [0, d * .3], popBack, () => { g.fillStyle = fill; g.beginPath(); framePath(g, cx, dcy, d, S().frame); g.fill(); }) });
+      // the frame behind the photo follows the photo's Frame setting (and its Fill, if set there)
+      const pid = `s${k}.photo`, fr = PP => D.tweakFor(PP, pid)?.frame || S().frame;
+      shapeEl(pl, { id: `s${k}.disc`, slide: k, name: `${last} · frame`, x: cx - d / 2, y: dcy - d / 2, w: d, h: d, t0: ts + .05, fill: accent, hitLast: true, off: PP => fr(PP) === 'none',
+        paint: (g, fill, t) => { const f0 = fr(D.curP()); if (f0 === 'none') return; const fl = OV().fill || D.tweakFor(D.curP(), pid)?.fill || fill;
+          enter(g, t == null ? 1 : prog(t, .4), cx, dcy, [0, d * .3], popBack, () => { g.fillStyle = fl; g.beginPath(); framePath(g, cx, dcy, d, f0); g.fill(); }); } });
       const pw = ph * judgeAspect(i);
-      photoEl(pl, { id: `s${k}.photo`, slide: k, name: `${last} · photo`, x: cx - pw / 2, y: base - ph, w: pw, h: ph, t0: ts + .12,
+      photoEl(pl, { id: `s${k}.photo`, slide: k, name: `${last} · photo`, framable: 'judge', fill: accent, x: cx - pw / 2, y: base - ph, w: pw, h: ph, t0: ts + .12,
         paint: (g, t) => paintJudge(g, i, cx, base, ph, motion() === 'fade' || t == null ? 1 : prog(t, .55), gg => gg.rect(0, -P.h, sw, base + P.h)) });
     }
     const nf = namesFit([i], nb.w, nb.h, ink, P, { offColor: accent, max: nb.h * .55, preR: .48 });
@@ -633,10 +646,11 @@ function frontrow(P) {
     const slot = gw / list.length, order = list.map((_, k) => k).sort((a, b) => Math.abs(b - (list.length - 1) / 2) - Math.abs(a - (list.length - 1) / 2));
     order.forEach(k => {
       const i = list[k], cx = gx + slot * (k + .5), pw = jh * judgeAspect(i), t = t0 + k * .16;
-      photoEl(pl, { id: `judge${i}`, name: `${C[i].last} · photo`, x: cx - pw / 2, y: base - jh, w: pw, h: jh, t0: t, paint: (g, tt) => {
-        const p = tt == null ? 1 : prog(tt, .6);
-        if (motion() === 'fade') { if (p <= 0) return; g.globalAlpha *= EASE.out(p); paintJudge(g, i, cx, base, jh, 1); }
-        else paintJudge(g, i, cx, base, jh, p);
+      photoEl(pl, { id: `judge${i}`, name: `${C[i].last} · photo`, framable: 'judge', frameDefault: 'none', x: cx - pw / 2, y: base - jh, w: pw, h: jh, t0: t, fill: W, paint: (g, tt, fill) => {
+        const p = tt == null ? 1 : prog(tt, .6), fr = OV().frame || 'none', d = jh / 1.12;
+        const one = rise => fr === 'none' ? paintJudge(g, i, cx, base, jh, rise) : paintPop(g, i, cx, base - d / 2, d, fill, rise, fr);
+        if (motion() === 'fade') { if (p <= 0) return; g.globalAlpha *= EASE.out(p); one(1); }
+        else one(p);
       } });
     });
   };
@@ -660,7 +674,7 @@ function frontrow(P) {
     const E = S().endorser, name = E.name.trim();
     if (!name) return;
     const res = fit1(name, 'heavy', d * 1.5, d * .4, { color: ink, maxLines: 2, max: d * .2 }), ok = res && res.s >= minText(P);
-    photoEl(pl, { id: 'cooper.face', name: 'Roy Cooper · photo', x: cx - d / 2, y: cy - d / 2, w: d, h: d, t0, fill: Y, paint: (g, t, fill) => {
+    photoEl(pl, { id: 'cooper.face', name: 'Roy Cooper · photo', framable: 'endorser', x: cx - d / 2, y: cy - d / 2, w: d, h: d, t0, fill: Y, paint: (g, t, fill) => {
       const p = t == null ? 1 : prog(t, .55);
       if (p <= 0) return;
       if (motion() === 'pop' && p < 1) { g.translate(cx, cy); g.rotate((1 - EASE.out(p)) * -1.4); g.scale(EASE.back(p), EASE.back(p)); g.translate(-cx, -cy); }
@@ -911,9 +925,9 @@ function scrapbook(P) {
     const res = fit1(name, 'heavy', b.w * .95, b.h - d, { color: W, maxLines: 1, max: d * .22 });
     const ok = res && res.s >= minText(P), cx = b.x + b.w / 2, cy = b.y + (ok ? d / 2 : b.h / 2);
     const tx = g => { g.translate(cx, cy); g.rotate(.06); g.translate(-cx, -cy); };
-    photoEl(pl, { id: 'cooper.face', name: 'Roy Cooper · photo', x: cx - d / 2, y: cy - d / 2, w: d, h: d, t0, fill: Y, tx, paint: (g, t, fill) =>
+    photoEl(pl, { id: 'cooper.face', name: 'Roy Cooper · photo', framable: 'endorser', x: cx - d / 2, y: cy - d / 2, w: d, h: d, t0, fill: Y, tx, paint: (g, t, fill) =>
       enter(g, t == null ? 1 : prog(t, .5), cx, cy, [0, d * .5], popBack, () => {
-        g.fillStyle = 'rgba(0,0,0,.25)'; g.beginPath(); g.arc(cx + d * .04, cy + d * .05, d / 2, 0, TAU); g.fill();
+        if (endFrame() !== 'none') { g.fillStyle = 'rgba(0,0,0,.25)'; g.beginPath(); framePath(g, cx + d * .04, cy + d * .05, d, endFrame()); g.fill(); }
         paintFace(g, D.endorserImg(), E, cx, cy, d, fill);
       }) });
     if (ok) {
