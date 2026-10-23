@@ -80,6 +80,7 @@ function freshState() {
     colors: { ...DEFAULT_COLORS },
     theme: 'classic', themeAuto: false,
     pattern: 'none', sticker: false, guides: true,
+    slideTimes: {}, // seconds per slide: slideTimes[design][slide]
     tweaks: {}, // your manual moves and resizes: tweaks[size][layout][element] = { dx, dy, s }
     duration: 8, outro: 'hold', motion: 'pop', pulse: true,
     frame: 'circle', endFrame: 'circle',
@@ -92,7 +93,7 @@ function merge(base, saved) {
   for (const k of Object.keys(base)) {
     if (!(k in saved)) continue;
     const b = base[k], s = saved[k];
-    if (k === 'tweaks') { base[k] = s && typeof s === 'object' && !Array.isArray(s) ? s : {}; continue; }
+    if (k === 'tweaks' || k === 'slideTimes') { base[k] = s && typeof s === 'object' && !Array.isArray(s) ? s : {}; continue; }
     if (b && typeof b === 'object' && !Array.isArray(b)) base[k] = merge(b, s);
     else if (Array.isArray(b)) {
       if (!Array.isArray(s)) continue;
@@ -689,8 +690,10 @@ function plan(P, T) {
   return L;
 }
 function makePlan(P, T) {
-  const suite = SUITES[layoutOf(P)] || SUITES.spotlight;
-  return (suite && suite(P, T)) || { fam: 'suite', bg: state.colors.blue, bands: [], items: [], end: 1 };
+  const suite = SUITES[layoutOf(P)] || SUITES.spotlight, prevP = CUR_P;
+  CUR_P = P; // suites read the size being planned through DBS.curP / slideLen
+  try { return (suite && suite(P, T)) || { fam: 'suite', bg: state.colors.blue, bands: [], items: [], end: 1 }; }
+  finally { CUR_P = prevP; }
 }
 
 /* ---------- edits on elements ---------- */
@@ -731,7 +734,8 @@ function drawItem(ctx, P, it) {
   const pit = pt && it._L?.byId.get(it.parent);
   if (pit) applyTweak(ctx, P, pit, pt);
   if (tk) applyTweak(ctx, P, it, tk);
-  CUR_OV = tk; it.b.draw(it.y, it.t0); CUR_OV = null;
+  const late = (tk?.delay || 0) + (pt?.delay || 0); // timing edits push an element's entrance later (or earlier)
+  CUR_OV = tk; it.b.draw(it.y, late && it.t0 != null ? it.t0 + late : it.t0); CUR_OV = null;
   ctx.restore();
 }
 
@@ -751,7 +755,11 @@ function drawBand(ctx, P, b) {
    for editing. Slides change through an iris (or a wipe or crossfade, per motion style). */
 let CUR_P = null; // the size being rendered right now (an export marks GIFs with gif: true)
 const slideAt = (L, t) => { let k = 0; L.slides.forEach((s, j) => { if (t >= s.start) k = j; }); return k; };
-const speedOf = L => Math.max(1, L.end / Math.max(1, state.duration - 1.5));
+// designs built from slides set their own running time (the sum of the slide lengths);
+// the Length setting is then a minimum. Others speed up if the intro outruns the length.
+const speedOf = L => L.total ? 1 : Math.max(1, L.end / Math.max(1, state.duration - 1.5));
+const durOf = P => { const L = plan(P, themeFor(P)); return L.total ? clamp(Math.max(state.duration, L.total), 1, 30) : state.duration; };
+const slideLens = L => (L.slides || []).map((s, j, a) => (j + 1 < a.length ? a[j + 1].start : L.total) - s.start);
 function render(ctx, P, k, editor, t = Infinity, slide = null) {
   ctx.setTransform(k, 0, 0, k, 0, 0);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
@@ -784,7 +792,7 @@ function render(ctx, P, k, editor, t = Infinity, slide = null) {
     L.items.forEach(it => it.top && (!SL || it.slide === '*' || it.slide === n) && drawItem(ctx, P, it));
     // optional fade at the very end so a looping video starts again cleanly
     if (Number.isFinite(t) && slide == null && state.outro === 'fade') {
-      const f = clamp((t - (state.duration - .45)) / .45, 0, 1);
+      const f = clamp((t - (durOf(P) - .45)) / .45, 0, 1);
       if (f > 0) { ctx.globalAlpha = f; ctx.fillStyle = L.bg; ctx.fillRect(0, 0, P.w, P.h); ctx.globalAlpha = 1; }
     }
   } finally { NOW = Infinity; DC = MC; CUR_EDITOR = false; }
@@ -821,7 +829,7 @@ function drawSingle(full) {
   viewK = k;
   render(c.getContext('2d'), P, k * dpr, true, playT, frozen() ? editSlide : null);
   drawSelection(c.getContext('2d'), P, k * dpr);
-  $('#scrub').value = Math.round(playT / state.duration * 1000);
+  $('#scrub').value = Math.round(playT / durOf(P) * 1000);
   $('#timeRead').textContent = `${playT.toFixed(1)}s`;
   if (!full) return;
   renderSlideBar();
@@ -914,17 +922,35 @@ ad.addEventListener('pointerleave', () => { if (!dragging && hoverId) { hoverId 
 
 // slide chips: pick a slide to freeze it for editing
 function renderSlideBar() {
-  const { L } = curPlan(), bar = $('#slideBar');
+  const { P, L } = curPlan(), bar = $('#slideBar');
   if (!L.slides || L.slides.length < 2) { bar.hidden = true; bar.innerHTML = ''; return; }
   bar.hidden = false;
-  const k = frozen() ? clamp(editSlide, 0, L.slides.length - 1) : -1;
-  bar.innerHTML = `<span class="hint">Slides</span>` + L.slides.map((s, j) => `<button class="chip${j === k ? ' active' : ''}" data-slide="${j}">${j + 1} · ${esc(s.name)}</button>`).join('');
+  const k = frozen() ? clamp(editSlide, 0, L.slides.length - 1) : -1, lens = slideLens(L), lay = layoutOf(P), n = L.slides.length;
+  const mine = state.slideTimes[lay] || {}, custom = Object.keys(mine).length > 0, dur = durOf(P);
+  const chips = L.slides.map((s, j) => `<button class="chip${j === k ? ' active' : ''}" data-slide="${j}">${j + 1} · ${esc(s.name)} <i>${lens[j].toFixed(1)}s</i></button>`).join('');
+  const total = `Runs ${dur.toFixed(1)}s${dur > L.total + .05 ? ` (the end card holds to fill the ${state.duration}s Length setting)` : state.duration < L.total - .05 ? ` (longer than the ${state.duration}s Length setting, to fit every slide)` : ''}`;
+  const row = k < 0
+    ? `<span class="hint">Pick a slide to change how long it stays up. ${total}.</span>`
+    : `<span class="tk-ctl"><span class="tk-lab">Slide ${k + 1} length</span><input type="range" id="slLen" min=".5" max="6" step=".1" value="${lens[k].toFixed(1)}"><output id="slLenOut">${lens[k].toFixed(1)}s</output></span>`
+      + (k > 0 && k < n - 1 && n > 3 ? `<button id="slAll" class="ghost sm">Use for slides 2–${n - 1}</button>` : '')
+      + (custom ? '<button id="slReset" class="ghost sm">Reset timing</button>' : '')
+      + `<span class="hint">${total} · Timing applies to every size in this design.</span>`;
+  bar.innerHTML = `<div class="tk-row"><span class="hint">Slides</span>${chips}</div><div class="tk-row">${row}</div>`;
   $$('#slideBar [data-slide]').forEach(b => b.onclick = () => { editSlide = +b.dataset.slide; selId = null; setPlaying(false); renderSlideBar(); renderTweakBar(); drawSingle(false); });
+  const setLen = (js, v) => { const t = (state.slideTimes[lay] ||= {}); js.forEach(j => { t[j] = Math.round(v * 10) / 10; }); planVersion++; };
+  const el = $('#slLen');
+  if (el) {
+    el.oninput = () => { setLen([k], +el.value); $('#slLenOut').textContent = `${(+el.value).toFixed(1)}s`; $$('#slideBar [data-slide] i')[k].textContent = `${(+el.value).toFixed(1)}s`; drawSingle(false); };
+    el.onchange = () => { save(); renderSlideBar(); };
+  }
+  $('#slAll')?.addEventListener('click', () => { setLen([...Array(n - 2)].map((_, j) => j + 1), lens[k]); save(); renderSlideBar(); drawSingle(false); });
+  $('#slReset')?.addEventListener('click', () => { delete state.slideTimes[lay]; planVersion++; save(); renderSlideBar(); drawSingle(false); });
 }
 // the edit bar under the ad: what's selected and everything that can change on it
 const swatches = () => [state.colors.yellow, state.colors.blue, state.colors.white, state.colors.black];
 const colorCtl = (key, label, cur) => `<span class="tk-ctl"><span class="tk-lab">${label}</span>${swatches().map(c => `<button class="sw${cur && cur.toLowerCase() === c.toLowerCase() ? ' on' : ''}" data-col="${key}" data-v="${c}" style="background:${c}" title="${c}"></button>`).join('')}<input type="color" data-colin="${key}" value="${cur || '#ffffff'}" title="Any color">${cur ? `<button class="tk-x" data-colclear="${key}" title="Back to the design's color">↺</button>` : ''}</span>`;
-const rangeCtl = (key, label, min, max, step, val, unit = '') => `<span class="tk-ctl"><span class="tk-lab">${label}</span><input type="range" data-tk="${key}" min="${min}" max="${max}" step="${step}" value="${val}"><output data-tkout="${key}">${Math.round(val)}${unit}</output></span>`;
+const fmtTk = (key, v) => key === 'delay' ? `${v > 0 ? '+' : ''}${(+v).toFixed(2)}s` : `${Math.round(v)}${key === 's' || key === 'width' ? '%' : ''}`;
+const rangeCtl = (key, label, min, max, step, val) => `<span class="tk-ctl"><span class="tk-lab">${label}</span><input type="range" data-tk="${key}" min="${min}" max="${max}" step="${step}" value="${val}"><output data-tkout="${key}">${fmtTk(key, val)}</output></span>`;
 function renderTweakBar(valuesOnly) {
   const { P, L, items } = currentItems(), bar = $('#tweakBar');
   if (selId && !items.some(i => i.id === selId)) selId = null;
@@ -939,6 +965,7 @@ function renderTweakBar(valuesOnly) {
     const d = roleDefaults(it.role), dh = roleDefaults('heavy'), ctl = [];
     if (!it.fixed) ctl.push(rangeCtl('s', 'Size', 20, 300, 1, (tk?.s ?? 1) * 100, '%'));
     if (it.textual && d) ctl.push(rangeCtl('weight', 'Weight', 100, 900, 10, tk?.weight ?? d.weight), rangeCtl('width', 'Width', 25, 200, 1, tk?.width ?? d.width, '%'));
+    if (!it.fixed) ctl.push(rangeCtl('delay', 'Delay', -1, 3, .05, tk?.delay ?? 0, 's'));
     if (it.textual) ctl.push(colorCtl('color', 'Text', tk?.color));
     if (it.hasHi) { ctl.push(colorCtl('hcolor', 'Highlight', tk?.hcolor)); if (dh) ctl.push(rangeCtl('hweight', 'Highlight weight', 100, 900, 10, tk?.hweight ?? dh.weight)); }
     if (it.fillable) ctl.push(colorCtl('fill', it.textual ? 'Fill' : 'Color', tk?.fill));
@@ -949,7 +976,7 @@ function renderTweakBar(valuesOnly) {
   }
   const edit = fn => { const t = tweakOf(P, selId, true); fn(t); };
   $$('[data-tk]', bar).forEach(el => {
-    el.oninput = () => { const k = el.dataset.tk, v = +el.value; edit(t => { t[k] = k === 's' ? v / 100 : v; }); $(`[data-tkout="${k}"]`, bar).textContent = `${Math.round(v)}${k === 's' || k === 'width' ? '%' : ''}`; drawSingle(false); };
+    el.oninput = () => { const k = el.dataset.tk, v = +el.value; edit(t => { t[k] = k === 's' ? v / 100 : v; }); $(`[data-tkout="${k}"]`, bar).textContent = fmtTk(k, v); drawSingle(false); };
     el.onchange = save;
   });
   $$('[data-col]', bar).forEach(b => b.onclick = () => { edit(t => { t[b.dataset.col] = b.dataset.v; }); save(); renderTweakBar(); drawSingle(false); });
@@ -977,14 +1004,14 @@ function tick(ts) {
   lastTs = ts;
   if (playing && !exporting && state.view === 'single') {
     playT += dt;
-    if (playT > state.duration) playT = 0;
+    if (playT > durOf(presetOf(state.size))) playT = 0;
     drawSingle(false);
   }
   requestAnimationFrame(tick);
 }
 function setPlaying(v) { playing = v; if (v) editSlide = null; $('#playBtn').textContent = v ? '❚❚' : '▶'; renderSlideBar(); }
-$('#playBtn').onclick = () => { if (!playing && playT >= state.duration - .05) playT = 0; setPlaying(!playing); };
-$('#scrub').oninput = e => { setPlaying(false); editSlide = null; renderSlideBar(); playT = +e.target.value / 1000 * state.duration; drawSingle(false); };
+$('#playBtn').onclick = () => { if (!playing && playT >= durOf(presetOf(state.size)) - .05) playT = 0; setPlaying(!playing); };
+$('#scrub').oninput = e => { setPlaying(false); editSlide = null; renderSlideBar(); playT = +e.target.value / 1000 * durOf(presetOf(state.size)); drawSingle(false); };
 document.addEventListener('keydown', e => {
   if (e.code !== 'Space' || /input|textarea|select/i.test(e.target.tagName)) return;
   e.preventDefault(); $('#playBtn').click();
@@ -1016,7 +1043,7 @@ function playCard(card) {
   const start = performance.now();
   const step = now => {
     const t = (now - start) / 1000;
-    if (t > state.duration || state.view !== 'grid') { delete card.dataset.playing; drawCard(card, Infinity); return; }
+    if (t > durOf(presetOf(card.dataset.key)) || state.view !== 'grid') { delete card.dataset.playing; drawCard(card, Infinity); return; }
     drawCard(card, t); requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
@@ -1250,7 +1277,7 @@ async function videoBlob(P, onProg) {
   const fc = await pickCodec(P);
   if (!fc) throw new Error('this browser can\'t encode video. Use Chrome or Edge.');
   const c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
-  const ctx = c.getContext('2d'), n = Math.round(state.duration * FPS);
+  const ctx = c.getContext('2d'), n = Math.round(durOf(P) * FPS);
   const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: fc.mux, width: P.w, height: P.h, frameRate: FPS }, fastStart: 'in-memory' });
   let failure = null;
   const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { failure = e; } });
@@ -1325,7 +1352,7 @@ async function gifBlob(P, onProg) {
   const c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
   const ctx = c.getContext('2d', { willReadFrequently: true }), W = P.w, H = P.h;
   // GIFs skip the looping ambient motion (ticker, shine, rays), which would bloat every frame
-  const GP = { ...P, gif: true }, grab = t => { render(ctx, GP, 1, false, t); return ctx.getImageData(0, 0, W, H).data; };
+  const GP = { ...P, gif: true }, grab = (t, slide = null) => { render(ctx, GP, 1, false, t, slide); return ctx.getImageData(0, 0, W, H).data; };
   // palette from a handful of moments, weighted toward the finished ad
   const hist = new Uint32Array(32768);
   for (const t of [.5, 1.5, 2.5, 3.5, Infinity, Infinity]) {
@@ -1333,9 +1360,14 @@ async function gifBlob(P, onProg) {
     for (let i = 0; i < d.length; i += 8) hist[(d[i] >> 3) << 10 | (d[i + 1] >> 3) << 5 | d[i + 2] >> 3]++;
   }
   // frame rate, colors: stepped down until the file fits (scene-by-scene designs need the low end)
-  const tries = [[12, 255], [10, 160], [8, 110], [6, 72], [5, 48], [4, 40], [3, 32], [2, 28]];
+  // the last resort for slide designs ('cuts') shows each finished slide for its length, without the transitions
+  const L = plan(GP, themeFor(GP)), dur = durOf(P), lens = L.slides?.length > 1 ? slideLens(L) : null;
+  const tries = [[12, 255], [10, 160], [8, 110], [6, 72], [5, 48], [4, 40], [3, 32], [2, 28], ...(lens ? [['cuts', 96], ['cuts', 48]] : [[2, 16]])];
   let blob = null;
   for (const [ti, [fps, colors]] of tries.entries()) {
+    const shots = fps === 'cuts'
+      ? L.slides.map((sl, j) => ({ t: null, slide: j, t0: sl.start, t1: j === L.slides.length - 1 ? dur : sl.start + lens[j] }))
+      : [...Array(Math.max(2, Math.round(dur * fps)))].map((_, f) => ({ t: f / fps, slide: null, t0: f / fps, t1: (f + 1) / fps }));
     const pal = medianCut(hist, colors), lookup = new Int16Array(32768).fill(-1);
     const nearest = key => {
       if (lookup[key] >= 0) return lookup[key];
@@ -1347,25 +1379,25 @@ async function gifBlob(P, onProg) {
     const out = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, W & 255, W >> 8, H & 255, H >> 8, 0xF7, 0, 0];
     for (let i = 0; i < 256; i++) { const p = pal[i - 1] || [0, 0, 0]; out.push(p[0], p[1], p[2]); }
     // Google allows looping only within 30 seconds in total
-    const plays = Math.max(1, Math.floor(30 / state.duration));
+    const plays = Math.max(1, Math.floor(30 / durOf(P)));
     if (plays > 1) out.push(0x21, 0xFF, 11, ...[...'NETSCAPE2.0'].map(ch => ch.charCodeAt(0)), 3, 1, (plays - 1) & 255, (plays - 1) >> 8, 0);
-    const n = Math.max(2, Math.round(state.duration * fps)), prev = new Uint8Array(W * H);
+    const n = shots.length, prev = new Uint8Array(W * H);
     const frames = [];
     for (let f = 0; f < n; f++) {
-      const d = grab(f / fps), cur = new Uint8Array(W * H);
+      const d = grab(shots[f].t, shots[f].slide), cur = new Uint8Array(W * H);
       for (let i = 0, j = 0; i < cur.length; i++, j += 4) cur[i] = nearest((d[j] >> 3) << 10 | (d[j + 1] >> 3) << 5 | d[j + 2] >> 3);
       let x0 = W, y0 = H, x1 = -1, y1 = -1;
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; if (f === 0 || cur[i] !== prev[i]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
-      if (x1 < 0) { frames[frames.length - 1].end = f + 1; continue; }
+      if (x1 < 0) { frames[frames.length - 1].end = shots[f].t1; continue; }
       const w = x1 - x0 + 1, h = y1 - y0 + 1, sub = new Uint8Array(w * h);
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y + y0) * W + x + x0; sub[y * w + x] = f && cur[i] === prev[i] ? 0 : cur[i]; }
       prev.set(cur);
-      frames.push({ x0, y0, w, h, sub, start: f, end: f + 1, first: f === 0 });
+      frames.push({ x0, y0, w, h, sub, start: shots[f].t0, end: shots[f].t1, first: f === 0 });
       if (f % 6 === 0) { onProg?.((ti + f / n) / tries.length); await yieldNow(); }
     }
     // hold the finished ad until the end of the clip
     for (const fr of frames) {
-      const delay = Math.round(fr.end * 100 / fps) - Math.round(fr.start * 100 / fps);
+      const delay = Math.round(fr.end * 100) - Math.round(fr.start * 100);
       out.push(0x21, 0xF9, 4, (1 << 2) | (fr.first ? 0 : 1), delay & 255, delay >> 8, 0, 0);
       out.push(0x2C, fr.x0 & 255, fr.x0 >> 8, fr.y0 & 255, fr.y0 >> 8, fr.w & 255, fr.w >> 8, fr.h & 255, fr.h >> 8, 0);
       lzw(fr.sub, out);
@@ -1475,6 +1507,8 @@ window.DBS = {
   endorserImg: () => (photoImg && photoImg.naturalWidth ? photoImg : null),
   register(key, label, fn) { SUITES[key] = fn; LAYOUTS[key] = label; renderLayouts(); redraw(); },
   redraw,
+  // a slide's length in seconds: the user's setting for this design, else the design's own default
+  slideLen: (j, def) => { const v = state.slideTimes[layoutOf(CUR_P)]?.[j]; return Number.isFinite(v) ? clamp(v, .3, 10) : def; },
 };
 
 /* ---------- boot ---------- */
@@ -1492,6 +1526,7 @@ requestAnimationFrame(tick);
 warmFonts();
 // for headless checks: render a preset to a data URL
 window.__renderSize = (key, t, layout, slide = null) => { const P = layout ? { ...presetOf(key), layout } : presetOf(key), c = document.createElement('canvas'); c.width = P.w; c.height = P.h; render(c.getContext('2d'), P, 1, false, t ?? Infinity, slide); return c.toDataURL('image/png'); };
+window.__dur = key => durOf(presetOf(key));
 window.__slides = (key, layout) => { const P = layout ? { ...presetOf(key), layout } : presetOf(key); return (plan(P, themeFor(P)).slides || []).length; };
 window.__exportAnim = async key => { const b = await animBlob(presetOf(key)); return { type: b.type, size: b.size, data: [...new Uint8Array(await b.arrayBuffer())] }; };
 })();

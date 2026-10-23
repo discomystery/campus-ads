@@ -214,3 +214,6 @@ label.check.pulse { margin-top: 26px; }
 .sw.on { border-color: #ff2d95; box-shadow: 0 0 0 2px rgba(255,45,149,.4); }
 .tk-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; }
 label.check.tk-ctl { margin: 0; color: var(--text); }
+.slide-bar { flex-direction: column; }
+.slide-bar .tk-row { justify-content: center; }
+.slide-bar .chip i { font-style: normal; font-weight: 500; opacity: .7; margin-left: 2px; }

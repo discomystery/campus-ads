@@ -492,8 +492,9 @@ function spotlight(P) {
   });
   const hook = headerBlock(pl, A.x, A.w, A.h * (banner ? 1 : .86), { kick: B, kickInk: W, ink: K, hi: B }, banner || f === 'wide' ? 'left' : 'center', P, f === 'strip', s0, 'hook');
   const hookEnd = hook ? hook.place(A.y + (A.h - hook.h) / 2, .12) : .5;
-  // a long headline gets time to finish building before the first judge
-  const J0 = Math.max(1.45, hookEnd + .55), STEP = .95, END0 = J0 + 4 * STEP;
+  // slide lengths: the user's, else a long headline gets time to finish building before the first judge
+  const len = [D.slideLen(0, Math.max(1.45, hookEnd + .55)), ...[1, 2, 3, 4].map(j => D.slideLen(j, 1.6)), D.slideLen(5, 3)];
+  const starts = len.reduce((a, l) => [...a, a[a.length - 1] + l], [0]), END0 = starts[5];
 
   // slides 2-5: one judge each
   [0, 1, 2, 3].forEach(i => {
@@ -514,7 +515,7 @@ function spotlight(P) {
       ph = P.h - Math.max(2, pad * .3); cx = l.x + l.w / 2; base = P.h;
     }
     if (!photos) { nb = A; align = banner || f === 'wide' ? 'left' : 'center'; }
-    const d = Math.min(ph * .82, (f === 'tall' ? A.w : P.w * .5) * .9), dcy = base - ph * .44, ts = J0 + i * STEP;
+    const d = Math.min(ph * .82, (f === 'tall' ? A.w : P.w * .5) * .9), dcy = base - ph * .44, ts = starts[1 + i];
     const k = pl.slide({ name: last, start: ts, ox: photos ? cx : A.x + A.w / 2, oy: photos ? dcy : A.y + A.h / 2 });
     bgEl(pl, k, last, bg, fillScene);
     if (base < P.h - 1) shapeEl(pl, { id: `s${k}.ground`, slide: k, name: `${last} · ground`, x: 0, y: base, w: sw, h: P.h - base, t0: ts, fill: accent, paint: (g, fill) => { g.fillStyle = fill; g.fillRect(0, base, sw, P.h - base); } });
@@ -586,7 +587,7 @@ function spotlight(P) {
     const grid = gridBlock(pl, lb, P, W, Y, e);
     grid?.place(lb.y + (lb.h - grid.h) / 2, t1 + .35);
   }
-  return pl.done({ bg: B, end: END0 + 1.3 });
+  return pl.done({ bg: B, end: END0 + 1.3, total: END0 + len[5] });
 }
 
 /* =========================================================================
