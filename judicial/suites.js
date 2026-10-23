@@ -15,7 +15,7 @@
 'use strict';
 const D = window.DBS;
 if (!D) return;
-if (D.build !== '20261023185021') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
+if (D.build !== '20261023195406') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
 const { clamp, EASE, prog, font, wrap, fitStack, stackAt, search, minText, msgOf, MC, enter, popBack, ASC, blockH } = D;
 const S = () => D.state();
 const now = () => D.now();
@@ -23,8 +23,8 @@ const G = () => D.ctx();
 const OV = () => D.ov() || {}; // the edits on the element being drawn
 const TAU = Math.PI * 2, WS = .075; // WS: seconds between words as a line builds
 const motion = () => S().motion;
-// looping background motion (ticker, shine, rays, wiggle) runs in the editor and in MP4s, not in GIFs or stills
-const ambient = () => Number.isFinite(now()) && !D.curP()?.gif;
+// looping background motion (ticker, shine, rays, wiggle) runs in MP4s, not in GIFs (or the Google sizes' preview) or stills
+const ambient = () => Number.isFinite(now()) && !D.gifLook();
 const pal = () => { const c = S().colors; return { Y: c.yellow, B: c.blue, W: c.white, K: c.black }; };
 function mix(a, b, t) {
   const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), A = p(a), Bc = p(b);

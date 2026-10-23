@@ -15,7 +15,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const STORE_KEY = 'judstudio.v2';
 /* the page and its scripts carry the same build id (bump-build.sh sets it); browsers cache scripts for a
    few minutes, so if a page ever runs with scripts from another build, ask for a reload instead of half-working */
-const BUILD = '20261023185021';
+const BUILD = '20261023195406';
 function staleBuild() {
   if ($('#staleBar')) return;
   const bar = document.createElement('div');
@@ -94,7 +94,7 @@ function freshState() {
     pattern: 'none', sticker: false, guides: true, snap: true, lcollapse: { sizes: false, layers: false },
     slideTimes: {}, // seconds per slide: slideTimes[design][slide]
     tweaks: {}, // your manual moves and resizes: tweaks[size][layout][element] = { dx, dy, s }
-    duration: 8, outro: 'hold', motion: 'pop', pulse: true,
+    duration: 8, outro: 'hold', motion: 'pop', pulse: true, gifMotion: 'light',
     frame: 'circle', endFrame: 'circle',
     font: { kit: '', family: 'obviously-variable', css: '', dWeight: '500', hWeight: '800', cWeight: '500', wideW: 150, lastW: 150, condW: 75, bodyW: 100 },
     exp: { kind: 'anim', format: 'png', cap: true, zip: true, stills: true, allMessages: false },
@@ -264,7 +264,11 @@ const EASE = {
   out: x => 1 - Math.pow(1 - x, 3),
   back: x => { const c1 = 1.8, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); },
 };
-const prog = (t0, dur) => clamp((NOW - t0) / dur, 0, 1);
+/* how far an animation is (0 to 1). GIFs can trade smooth motion for size: GIF_STEP 2 moves in two jumps
+   (halfway, then there), 1 makes things simply appear on cue. Fewer in-between frames leave the 150 KB
+   for a higher frame rate and more colors. */
+let GIF_STEP = 0, GIF_FORCE = null; // GIF_FORCE: the step an export falls back to
+const prog = (t0, dur) => { const p = clamp((NOW - t0) / dur, 0, 1); return GIF_STEP && p > 0 && p < 1 ? Math.ceil(p * GIF_STEP) / GIF_STEP : p; };
 /* How each element arrives depends on the chosen style:
    pop = scales in with a bounce, slide = glides in, fade = fades up, none = no motion. */
 const MOTIONS = { pop: 'Pop (bouncy)', slide: 'Slide (smooth)', fade: 'Fade (calm)', none: 'None (still image)' };
@@ -778,6 +782,8 @@ function render(ctx, P, k, editor, t = Infinity, slide = null) {
   CUR_P = P; CUR_EDITOR = !!editor;
   const T = themeFor(P), L = plan(P, T);
   NOW = slide != null || state.motion === 'none' ? Infinity : t * speedOf(L); DC = ctx;
+  // Google sizes export as GIFs, so their preview shows the GIF motion too
+  GIF_STEP = gifLook(P) ? (GIF_FORCE ?? ({ light: 2, step: 1 }[state.gifMotion] || 0)) : 0;
   try {
     ctx.fillStyle = L.bg; ctx.fillRect(0, 0, P.w, P.h);
     for (const b of L.bands) drawBand(ctx, P, b);
@@ -807,7 +813,7 @@ function render(ctx, P, k, editor, t = Infinity, slide = null) {
       const f = clamp((t - (durOf(P) - .45)) / .45, 0, 1);
       if (f > 0) { ctx.globalAlpha = f; ctx.fillStyle = L.bg; ctx.fillRect(0, 0, P.w, P.h); ctx.globalAlpha = 1; }
     }
-  } finally { NOW = Infinity; DC = MC; CUR_EDITOR = false; }
+  } finally { NOW = Infinity; DC = MC; CUR_EDITOR = false; GIF_STEP = 0; }
   if (editor && P.safe && state.guides) {
     const s = P.safe;
     ctx.fillStyle = 'rgba(8,8,14,.38)';
@@ -1687,6 +1693,7 @@ document.fonts.addEventListener('loadingdone', () => { fontStatus(); redraw(); }
 const toBlob = (c, type, q) => new Promise(res => c.toBlob(res, type, q));
 const yieldNow = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
 const isGif = P => P.group === 'Google';
+function gifLook(P) { return !!(P && (P.gif || isGif(P))); }
 async function stillBlob(P) {
   const c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
   render(c.getContext('2d'), P, 1, false);
@@ -1798,9 +1805,16 @@ async function gifBlob(P, onProg) {
   // frame rate, colors: stepped down until the file fits (scene-by-scene designs need the low end)
   // the last resort for slide designs ('cuts') shows each finished slide for its length, without the transitions
   const L = plan(GP, themeFor(GP)), dur = durOf(P), lens = L.slides?.length > 1 ? slideLens(L) : null;
-  const tries = [[12, 255], [10, 160], [8, 110], [6, 72], [5, 48], [4, 40], [3, 32], [2, 28], ...(lens ? [['cuts', 96], ['cuts', 48]] : [[2, 16]])];
+  /* with stepped motion, the size depends on how many different frames there are, not the frame rate, so those
+     modes give up colors before frames, and Light falls back to Simple (appear on cue) before losing much color */
+  const smooth = [[12, 255], [10, 160], [8, 110], [6, 72], [5, 48], [4, 40], [3, 32], [2, 28]];
+  const stepped = force => [[12, 255, force], [12, 160, force], [12, 110, force], [12, 72, force]];
+  const mode = state.gifMotion;
+  const tries = [...(mode === 'light' ? [...stepped(2).slice(0, 2), ...stepped(1)] : mode === 'step' ? stepped(1) : smooth),
+    ...(lens ? [['cuts', 96], ['cuts', 48]] : mode === 'full' ? [[2, 16]] : [[6, 48, 1], [4, 32, 1]])];
   let blob = null;
-  for (const [ti, [fps, colors]] of tries.entries()) {
+  for (const [ti, [fps, colors, force]] of tries.entries()) {
+    GIF_FORCE = force ?? null;
     const shots = fps === 'cuts'
       ? L.slides.map((sl, j) => ({ t: null, slide: j, t0: sl.start, t1: j === L.slides.length - 1 ? dur : sl.start + lens[j] }))
       : [...Array(Math.max(2, Math.round(dur * fps)))].map((_, f) => ({ t: f / fps, slide: null, t0: f / fps, t1: (f + 1) / fps }));
@@ -1840,8 +1854,10 @@ async function gifBlob(P, onProg) {
     }
     out.push(0x3B);
     blob = new Blob([new Uint8Array(out)], { type: 'image/gif' });
+    window.__lastGif = { fps, colors, step: GIF_FORCE, kb: Math.round(blob.size / 1024) };
     if (!state.exp.cap || blob.size <= GOOGLE_CAP) break;
   }
+  GIF_FORCE = null;
   return blob;
 }
 const animBlob = (P, onProg) => isGif(P) ? gifBlob(P, onProg) : videoBlob(P, onProg);
@@ -1944,6 +1960,7 @@ window.DBS = {
   register(key, label, fn) { SUITES[key] = fn; LAYOUTS[key] = label; renderLayouts(); redraw(); },
   redraw, build: BUILD, staleBuild,
   // a slide's length in seconds: the user's setting for this design, else the design's own default
+  gifLook: () => gifLook(CUR_P),
   tweakFor: (P, id) => (P ? tweaksFor(P)[id] : null) || null,
   slideLen: (j, def) => { const v = state.slideTimes[layoutOf(CUR_P)]?.[j]; return Number.isFinite(v) ? clamp(v, .3, 10) : def; },
 };
