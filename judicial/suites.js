@@ -15,7 +15,7 @@
 'use strict';
 const D = window.DBS;
 if (!D) return;
-if (D.build !== '20261026140956') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
+if (D.build !== '20261026142500') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
 const { clamp, EASE, prog, font, wrap, fitStack, stackAt, search, minText, msgOf, MC, enter, popBack, ASC, blockH } = D;
 const S = () => D.state();
 const now = () => D.now();
@@ -689,25 +689,45 @@ function frontrow(P) {
   const headT = .2;
 
   if (f === 'square' && Math.min(P.w, P.h) >= 600) {
-    /* big squares (Meta 1:1): a tall ticker, the poster headline, then the four judges large across the full
-       width on the sunrise, each over "Justice Anita" / EARLS / "for Supreme Court" on the white strip */
-    const th = Math.round(P.h * .07);
+    /* big squares (Meta 1:1), measured off the campaign's reference cut (1080 x 1080) and scaled to the size:
+       a 76px ticker, the poster headline, the judges large on the sunrise, and on the white strip each judge's
+       "Justice Anita" / EARLS / "for Supreme Court" at set cap heights, centered on set columns */
+    const k = P.w / 1080, kh = P.h / 1080, cap = (role, px) => { MC.font = D.fontOv(role, 100, {}); return px / ((MC.measureText('H').actualBoundingBoxAscent || 72) / 100); };
+    const th = Math.round(76 * kh);
     ticker(0, 0, P.w, th);
-    const discS = discOn ? clamp(P.h * .016, 10, 20) : 0, discH = discS ? discS * 1.3 : 0;
-    const coopW = endOn ? P.w * .2 : 0, gx = coopW ? pad * .2 : 0, gw = P.w - gx * 2 - coopW, slot = gw / 4;
-    const nf = namesFit(ids, slot * .96, P.h * .17, K, P, { max: P.w * .05, offColor: B, preR: .56, offR: .46, min: Math.max(14, P.h * .017), modes: [['p', 'office'], ['p', 'short'], ['p', null], [null, null]] });
-    const nh = nf ? Math.max(...nf.res.map(r => r.total)) : 0;
-    const stripH = nh + pad * 1.3 + (discH ? discH + pad * .5 : 0), stripY = P.h - stripH;
-    const PT = poster(M.headline, box.w, (stripY - th) * .42, P, { maxLines: 4 }) || poster(M.short, box.w, (stripY - th) * .36, P);
-    let gy = th + pad * .6;
-    if (PT) { posterEls(pl, PT, box.x, th + pad * .75, 'center', K, B, headT, 0); gy = th + pad * 1.5 + PT.h; }
-    const ph = stripY - gy;
-    panel(0, gy, P.w, ph, .5, { cx: gx + gw / 2, cy: stripY, R: Math.min(gw * .34, ph * .74), t0: .7 });
-    strip(0, stripY, P.w, stripH, .85);
-    group(ids, gx, gw, stripY, Math.min(ph * .84, slot * 1.5), 1.0);
-    if (nf) names(ids, gx, gw, stripY + pad * .55, nf.res, 1.35);
-    if (coopW) { const d = Math.min(coopW * .8, ph * .4); cooper(P.w - coopW / 2 - pad * .2, gy + ph * .3, d, 2.2); }
-    if (discOn) discEl(pl, P, box.x, box.w, P.h - discH - pad * .35, discS, K, 'center', null, 0);
+    const PT = poster(M.headline, 959 * k, 300 * kh, P, { maxLines: 4 }) || poster(M.short, 959 * k, 300 * kh, P);
+    const hy = th + 34 * kh;
+    if (PT) posterEls(pl, PT, 60 * k, hy, 'center', K, B, headT, 0);
+    const stripY = 890 * kh, gy = PT ? Math.min(hy + PT.h + 52 * kh, stripY - 380 * kh) : th + 300 * kh, ph = stripY - gy;
+    panel(0, gy, P.w, ph, .5, { cx: P.w / 2, cy: stripY, R: 356 * k, t0: .7 });
+    strip(0, stripY, P.w, P.h - stripY, .85);
+    // the judges: centers and heights as in the reference (Arrowood a touch smaller), the middle two in front
+    const JX = [207, 413, 639, 881], JH = [406, 382, 406, 406];
+    if (photos) [0, 3, 1, 2].forEach(i => {
+      const cx = JX[i] * k, jh = Math.min(JH[i] * kh, ph * .98), pw = jh * judgeAspect(i), t = 1.0 + i * .16;
+      photoEl(pl, { id: `judge${i}`, name: `${C[i].last} · photo`, framable: 'judge', frameDefault: 'none', x: cx - pw / 2, y: stripY - jh, w: pw, h: jh, t0: t, fill: W, paint: (g, tt, fill) => {
+        const p = tt == null ? 1 : prog(tt, .6), fr = OV().frame || 'none', d = jh / 1.12;
+        const one = rise => fr === 'none' ? paintJudge(g, i, cx, stripY, jh, rise) : paintPop(g, i, cx, stripY - d / 2, d, fill, rise, fr);
+        if (motion() === 'fade') { if (p <= 0) return; g.globalAlpha *= EASE.out(p); one(1); } else one(p);
+      } });
+    });
+    // names: title (20px caps, baseline 944), last name (36px caps, baseline 988), office (15px, baseline 1024, blue);
+    // the H measured slightly taller than the reference glyphs, hence 19.1 and 33.2
+    const NX = [110, 358, 665, 942], colW = 300 * k;
+    const line = (i, n, role, text, capPx, base, color, anim, t0) => {
+      if (!text) return;
+      let size = cap(role, capPx * kh);
+      MC.font = D.fontOv(role, size, {}); const tw = MC.measureText(text).width;
+      if (tw > colW) size *= colW / tw; // a longer name than the reference shrinks to its column
+      textEl(pl, { id: `name${i}.${n}`, name: `${C[i].last} · ${ROLE_LABEL[role]}`, ln: plainLine(text, role, size, color), x: NX[i] * k - colW / 2, y: base * kh - size * ASC, w: colW, align: 'center', anim, t0, dir: 0 });
+    };
+    ids.forEach(i => {
+      const c = C[i], t = 1.35 + i * .16; let n = 0;
+      if (c.showPrefix && c.prefix.trim()) line(i, n++, 'condBold', c.prefix.trim(), 19.1, 944, K, 'glide', t);
+      line(i, n++, 'last', c.last.trim(), 33.2, 988, K, 'slam', t + .1);
+      if (c.showOffice && officeOf(c, 'office')) line(i, n++, 'cond', officeOf(c, 'office'), 15, 1024, B, 'fade', t + .2);
+    });
+    if (discOn) { const ds = cap('medium', 12 * kh); discEl(pl, P, 60 * k, 959 * k, 1069 * kh - ds * ASC, ds, K, 'center', null, 0); }
   } else if (f === 'tall' || f === 'square') {
     const th = clamp(P.h * (f === 'tall' ? .036 : .05), 16, 56), ty = P.safe ? box.y : 0;
     ticker(0, ty, P.w, th);
