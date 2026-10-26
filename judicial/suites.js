@@ -15,7 +15,7 @@
 'use strict';
 const D = window.DBS;
 if (!D) return;
-if (D.build !== '20261026142500') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
+if (D.build !== '20261026142626') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
 const { clamp, EASE, prog, font, wrap, fitStack, stackAt, search, minText, msgOf, MC, enter, popBack, ASC, blockH } = D;
 const S = () => D.state();
 const now = () => D.now();
@@ -711,7 +711,7 @@ function frontrow(P) {
         if (motion() === 'fade') { if (p <= 0) return; g.globalAlpha *= EASE.out(p); one(1); } else one(p);
       } });
     });
-    // names: title (20px caps, baseline 944), last name (36px caps, baseline 988), office (15px, baseline 1024, blue);
+    // names: title (20px caps, baseline 944), last name (36px caps, baseline 988), office (20px, baseline 1030, blue);
     // the H measured slightly taller than the reference glyphs, hence 19.1 and 33.2
     const NX = [110, 358, 665, 942], colW = 300 * k;
     const line = (i, n, role, text, capPx, base, color, anim, t0) => {
@@ -725,7 +725,7 @@ function frontrow(P) {
       const c = C[i], t = 1.35 + i * .16; let n = 0;
       if (c.showPrefix && c.prefix.trim()) line(i, n++, 'condBold', c.prefix.trim(), 19.1, 944, K, 'glide', t);
       line(i, n++, 'last', c.last.trim(), 33.2, 988, K, 'slam', t + .1);
-      if (c.showOffice && officeOf(c, 'office')) line(i, n++, 'cond', officeOf(c, 'office'), 15, 1024, B, 'fade', t + .2);
+      if (c.showOffice && officeOf(c, 'office')) line(i, n++, 'cond', officeOf(c, 'office'), 20, 1030, B, 'fade', t + .2);
     });
     if (discOn) { const ds = cap('medium', 12 * kh); discEl(pl, P, 60 * k, 959 * k, 1069 * kh - ds * ASC, ds, K, 'center', null, 0); }
   } else if (f === 'tall' || f === 'square') {

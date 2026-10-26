@@ -15,7 +15,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const STORE_KEY = 'judstudio.v2';
 /* the page and its scripts carry the same build id (bump-build.sh sets it); browsers cache scripts for a
    few minutes, so if a page ever runs with scripts from another build, ask for a reload instead of half-working */
-const BUILD = '20261026142500';
+const BUILD = '20261026142626';
 function staleBuild() {
   if ($('#staleBar')) return;
   const bar = document.createElement('div');
