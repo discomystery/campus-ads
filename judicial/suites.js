@@ -15,7 +15,7 @@
 'use strict';
 const D = window.DBS;
 if (!D) return;
-if (D.build !== '20261023195406') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
+if (D.build !== '20261026140956') { D.staleBuild?.(); return; } // scripts from two different builds: don't run half of one
 const { clamp, EASE, prog, font, wrap, fitStack, stackAt, search, minText, msgOf, MC, enter, popBack, ASC, blockH } = D;
 const S = () => D.state();
 const now = () => D.now();
@@ -225,7 +225,7 @@ const officeOf = (c, mode) => ((mode === 'short' ? c.short || c.office : c.offic
 /* the judges' name stacks ("Justice Anita" / EARLS / "for Supreme Court") at one shared size;
    office lines go first, then the short office, then titles, until the last name is readable */
 function namesFit(ids, w, h, color, P, o = {}) {
-  const C = S().candidates, minP = minText(P), pr = o.preR ?? .52, orr = o.offR ?? .42;
+  const C = S().candidates, minP = o.min ?? minText(P), pr = o.preR ?? .52, orr = o.offR ?? .42;
   const modes = o.modes || [['p', 'office'], ['p', 'short'], ['p', null], [null, 'short'], [null, null]];
   for (const [pre, off] of modes) {
     const sets = ids.map(i => { const c = C[i]; return [
@@ -688,7 +688,27 @@ function frontrow(P) {
   };
   const headT = .2;
 
-  if (f === 'tall' || f === 'square') {
+  if (f === 'square' && Math.min(P.w, P.h) >= 600) {
+    /* big squares (Meta 1:1): a tall ticker, the poster headline, then the four judges large across the full
+       width on the sunrise, each over "Justice Anita" / EARLS / "for Supreme Court" on the white strip */
+    const th = Math.round(P.h * .07);
+    ticker(0, 0, P.w, th);
+    const discS = discOn ? clamp(P.h * .016, 10, 20) : 0, discH = discS ? discS * 1.3 : 0;
+    const coopW = endOn ? P.w * .2 : 0, gx = coopW ? pad * .2 : 0, gw = P.w - gx * 2 - coopW, slot = gw / 4;
+    const nf = namesFit(ids, slot * .96, P.h * .17, K, P, { max: P.w * .05, offColor: B, preR: .56, offR: .46, min: Math.max(14, P.h * .017), modes: [['p', 'office'], ['p', 'short'], ['p', null], [null, null]] });
+    const nh = nf ? Math.max(...nf.res.map(r => r.total)) : 0;
+    const stripH = nh + pad * 1.3 + (discH ? discH + pad * .5 : 0), stripY = P.h - stripH;
+    const PT = poster(M.headline, box.w, (stripY - th) * .42, P, { maxLines: 4 }) || poster(M.short, box.w, (stripY - th) * .36, P);
+    let gy = th + pad * .6;
+    if (PT) { posterEls(pl, PT, box.x, th + pad * .75, 'center', K, B, headT, 0); gy = th + pad * 1.5 + PT.h; }
+    const ph = stripY - gy;
+    panel(0, gy, P.w, ph, .5, { cx: gx + gw / 2, cy: stripY, R: Math.min(gw * .34, ph * .74), t0: .7 });
+    strip(0, stripY, P.w, stripH, .85);
+    group(ids, gx, gw, stripY, Math.min(ph * .84, slot * 1.5), 1.0);
+    if (nf) names(ids, gx, gw, stripY + pad * .55, nf.res, 1.35);
+    if (coopW) { const d = Math.min(coopW * .8, ph * .4); cooper(P.w - coopW / 2 - pad * .2, gy + ph * .3, d, 2.2); }
+    if (discOn) discEl(pl, P, box.x, box.w, P.h - discH - pad * .35, discS, K, 'center', null, 0);
+  } else if (f === 'tall' || f === 'square') {
     const th = clamp(P.h * (f === 'tall' ? .036 : .05), 16, 56), ty = P.safe ? box.y : 0;
     ticker(0, ty, P.w, th);
     const bottomY = P.safe ? box.y + box.h : P.h, contentTop = ty + th + pad * .8, avail = bottomY - contentTop;
